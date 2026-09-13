@@ -59,8 +59,11 @@ function mulberry32(seed) {
 
 // ---- 64-beat energy arc (verse/chorus dynamics) ----
 
-/** Window target energies: groove -> build -> peak -> release, repeating. */
-export const ENERGY_WINDOWS = [0.35, 0.65, 1.0, 0.45];
+/** Window target energies: groove -> build -> peak -> release, repeating.
+ *  Widened floor (was [0.35, 0.65, 1.0, 0.45]): the dance now spends far
+ *  more time near peak — the low windows still breathe, but never read as
+ *  "not dancing" (the old 0.35 groove window damped every move ~15%). */
+export const ENERGY_WINDOWS = [0.5, 0.75, 1.0, 0.6];
 
 /**
  * Energy at a global beat index. Each 16-beat phrase window sits at its
@@ -111,38 +114,38 @@ const TIERS = [
   {
     phrases: [
       {
-        name: 'pendulum-sway', energy: 0.3, entry: [3, 2, 4, 1],
+        name: 'pendulum-sway', energy: 0.3, entry: [4, 2, 5, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 8;
-          return flow(r, r * 0.5, 4 + dip(c.isDown, 3), 1, 0.35, 1.9, c.isDown ? 2 : 0);
+          const r = side2(b, c.lead) * 10;
+          return flow(r, r * 0.5, 5 + dip(c.isDown, 4), 1, 0.35, 1.9, c.isDown ? 2 : 0);
         },
       },
       {
-        name: 'crane-sweep', energy: 0.45, entry: [5, 2, 3, 1],
+        name: 'crane-sweep', energy: 0.45, entry: [6, 2, 4, 1],
         pose(b, c) {
-          const r = c.lead * 10 * Math.sin((b * Math.PI) / 8);
-          return flow(r, r * 0.4, 3 + dip(c.isDown, 2), 1, 0.3, 1.9, c.isDown ? 2 : 0);
+          const r = c.lead * 12 * Math.sin((b * Math.PI) / 8);
+          return flow(r, r * 0.4, 4 + dip(c.isDown, 3), 1, 0.3, 1.9, c.isDown ? 2 : 0);
         },
       },
       {
-        name: 'slow-loom', energy: 0.35, entry: [0, 0, 6, 1.02],
+        name: 'slow-loom', energy: 0.35, entry: [0, 0, 7, 1.02],
+        pose(b, c) {
+          const r = Math.sin((b * Math.PI) / 4) * 4;
+          return flow(r, r * 0.5, 7 + dip(c.isDown, 5), c.isDown ? 1.04 : 1.0, 0.45, 1.9, c.isDown ? 2 : 0);
+        },
+      },
+      {
+        name: 'bob-drift', energy: 0.5, entry: [0, 0, 7, 1],
+        pose(b, c) {
+          const r = Math.sin((b * Math.PI) / 2) * 5;
+          return flow(r, r * 0.6, 7 + dip(c.isDown, 7), 1, 0.3, 1.9, c.isDown ? 2 : 0);
+        },
+      },
+      {
+        name: 'settle-rest', energy: 0.15, entry: [0, 0, 3, 1],
         pose(b, c) {
           const r = Math.sin((b * Math.PI) / 4) * 3;
-          return flow(r, r * 0.5, 6 + dip(c.isDown, 4), c.isDown ? 1.04 : 1.0, 0.45, 1.9, c.isDown ? 2 : 0);
-        },
-      },
-      {
-        name: 'bob-drift', energy: 0.5, entry: [0, 0, 6, 1],
-        pose(b, c) {
-          const r = Math.sin((b * Math.PI) / 2) * 4;
-          return flow(r, r * 0.6, 6 + dip(c.isDown, 6), 1, 0.3, 1.9, c.isDown ? 2 : 0);
-        },
-      },
-      {
-        name: 'settle-rest', energy: 0.15, entry: [0, 0, 2, 1],
-        pose(b, c) {
-          const r = Math.sin((b * Math.PI) / 4) * 2;
-          return flow(r, r * 0.5, 2 + dip(c.isDown, 1.5), 1, 0.55, 1.9, c.isDown ? 1 : 0);
+          return flow(r, r * 0.5, 3 + dip(c.isDown, 2), 1, 0.55, 1.9, c.isDown ? 1 : 0);
         },
       },
     ],
@@ -159,40 +162,40 @@ const TIERS = [
   {
     phrases: [
       {
-        name: 'metronome-rock', energy: 0.5, entry: [4, 2, 4, 1],
+        name: 'metronome-rock', energy: 0.5, entry: [5, 2, 5, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 8;
-          return hit(r, r * 0.5, 4 + dip(c.isDown, 5), c.isDown ? 1.02 : 0.99, 0.2, 0.8,
+          const r = side2(b, c.lead) * 10;
+          return hit(r, r * 0.5, 5 + dip(c.isDown, 6), c.isDown ? 1.02 : 0.99, 0.2, 0.8,
             c.isDown ? 3 : 0, c.quad ? [(c.rnd() - 0.5) * 4, (c.rnd() - 0.5) * 3] : null);
         },
       },
       {
-        name: 'dip-nod', energy: 0.6, entry: [0, 0, 6, 1.02],
+        name: 'dip-nod', energy: 0.6, entry: [0, 0, 8, 1.02],
         pose(b, c) {
-          return hit(0, 0, 6 + dip(c.isDown, 7), c.isDown ? 1.03 : 0.98, 0.25, 0.8, c.isDown ? 4 : 0);
+          return hit(0, 0, 8 + dip(c.isDown, 9), c.isDown ? 1.03 : 0.98, 0.25, 0.8, c.isDown ? 4 : 0);
         },
       },
       {
-        name: 'swivel-groove', energy: 0.65, entry: [5, 3, 5, 1],
+        name: 'swivel-groove', energy: 0.65, entry: [6, 3, 6, 1],
         pose(b, c) {
-          const r = c.lead * 8 * Math.sin((b * Math.PI) / 4);
-          return hit(r, r * 0.5, 5 + dip(c.isDown, 3), 1, 0.2, 0.8, c.isDown ? 3 : 0);
+          const r = c.lead * 10 * Math.sin((b * Math.PI) / 4);
+          return hit(r, r * 0.5, 6 + dip(c.isDown, 4), 1, 0.2, 0.8, c.isDown ? 3 : 0);
         },
       },
       {
-        name: 'bounce-build', energy: 0.8, entry: [0, 0, 5, 1.02],
+        name: 'bounce-build', energy: 0.8, entry: [0, 0, 6, 1.02],
         pose(b, c) {
           const k = 0.6 + (b / 16) * 0.8; // amplitude grows across the phrase
-          const r = side2(b, c.lead) * 6 * k;
-          return hit(r, r * 0.5, 5 + dip(c.isDown, 7 * k),
+          const r = side2(b, c.lead) * 8 * k;
+          return hit(r, r * 0.5, 6 + dip(c.isDown, 9 * k),
             c.isDown ? 1 + 0.04 * k : 1 - 0.02 * k, 0.15, 0.8, c.isDown ? 3 + 2 * k : 0);
         },
       },
       {
-        name: 'groove-release', energy: 0.3, entry: [3, 2, 3, 1],
+        name: 'groove-release', energy: 0.3, entry: [4, 2, 4, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 5;
-          return flow(r, r * 0.5, 3 + dip(c.isDown, 2), 1, 0.4, 1.5, c.isDown ? 2 : 0);
+          const r = side2(b, c.lead) * 6;
+          return flow(r, r * 0.5, 4 + dip(c.isDown, 3), 1, 0.4, 1.5, c.isDown ? 2 : 0);
         },
       },
     ],
@@ -209,39 +212,39 @@ const TIERS = [
   {
     phrases: [
       {
-        name: 'dip-loom', energy: 0.7, entry: [4, 2, 5, 1.02],
+        name: 'dip-loom', energy: 0.7, entry: [5, 2, 6, 1.02],
         pose(b, c) {
-          const r = side2(b, c.lead) * 5;
-          return hit(r, r * 0.5, 5 + dip(c.isDown, 6), c.isDown ? 1.04 : 0.97,
+          const r = side2(b, c.lead) * 7;
+          return hit(r, r * 0.5, 6 + dip(c.isDown, 8), c.isDown ? 1.04 : 0.97,
             c.isDown ? 0.1 : 0, 0.6, c.isDown ? 4 : 0);
         },
       },
       {
-        name: 'snap-swivel', energy: 0.85, entry: [6, 3, 4, 1],
+        name: 'snap-swivel', energy: 0.85, entry: [7, 3, 5, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * (c.isDown ? 12 : 3.6); // snap, then hold-back
-          return hit(r, r * 0.4, 4 + dip(c.isDown, 4), 1, 0.1, c.isDown ? 0.5 : 0.6, c.isDown ? 4 : 0);
+          const r = side2(b, c.lead) * (c.isDown ? 15 : 4.5); // snap, then hold-back
+          return hit(r, r * 0.4, 5 + dip(c.isDown, 5), 1, 0.1, c.isDown ? 0.5 : 0.6, c.isDown ? 4 : 0);
         },
       },
       {
-        name: 'pendulum-pump', energy: 0.75, entry: [5, 3, 4, 1],
+        name: 'pendulum-pump', energy: 0.75, entry: [6, 3, 5, 1],
         pose(b, c) {
-          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 10;
-          return hit(r, r * 0.5, 4 + dip(c.isDown, 4), 1.01, 0.15, 0.6, c.isDown ? 4 : 0);
+          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 13;
+          return hit(r, r * 0.5, 5 + dip(c.isDown, 5), 1.01, 0.15, 0.6, c.isDown ? 4 : 0);
         },
       },
       {
-        name: 'peak-stomp', energy: 1.0, entry: [8, 4, 6, 1.03], halo: 0.8,
+        name: 'peak-stomp', energy: 1.0, entry: [10, 5, 8, 1.03], halo: 0.8,
         pose(b, c) {
-          const r = side2(b, c.lead) * 14;
-          return hit(r, r * 0.5, 6 + dip(c.isDown, 8), c.isDown ? 1.06 : 0.97, 0, 0.45, c.isDown ? 5 : 0);
+          const r = side2(b, c.lead) * 18;
+          return hit(r, r * 0.5, 8 + dip(c.isDown, 10), c.isDown ? 1.06 : 0.97, 0, 0.45, c.isDown ? 5 : 0);
         },
       },
       {
-        name: 'club-release', energy: 0.4, entry: [3, 2, 3, 1],
+        name: 'club-release', energy: 0.4, entry: [4, 2, 4, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 6;
-          return flow(r, r * 0.5, 3 + dip(c.isDown, 3), 1, 0.3, 1.6, c.isDown ? 2 : 0);
+          const r = side2(b, c.lead) * 8;
+          return flow(r, r * 0.5, 4 + dip(c.isDown, 4), 1, 0.3, 1.6, c.isDown ? 2 : 0);
         },
       },
     ],
@@ -258,43 +261,43 @@ const TIERS = [
   {
     phrases: [
       {
-        name: 'violent-pendulum', energy: 0.75, entry: [8, 4, 5, 1],
+        name: 'violent-pendulum', energy: 0.75, entry: [10, 5, 6, 1],
         pose(b, c) {
-          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 16;
-          return hit(r, r * 0.5, 5 + dip(c.isDown, 6), c.isDown ? 1.04 : 0.97, 0.1, 0.8, c.isDown ? 5 : 0);
+          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 20;
+          return hit(r, r * 0.5, 6 + dip(c.isDown, 8), c.isDown ? 1.04 : 0.97, 0.1, 0.8, c.isDown ? 5 : 0);
         },
       },
       {
-        name: 'servo-stutter', energy: 1.0, entry: [0, 0, 4, 1.03],
+        name: 'servo-stutter', energy: 1.0, entry: [0, 0, 5, 1.03],
         pose(b, c) {
-          // Seeded mechanical glitch: positions quantized to 7-degree servo
+          // Seeded mechanical glitch: positions quantized to 9-degree servo
           // steps from a per-beat seeded stream — wild but COHERENT (the same
           // phrase always stutters the same way), never per-beat noise.
-          const r = (Math.floor(c.rnd() * 5) - 2) * 7;
-          return hit(r, r * 0.4, 4 + dip(c.isDown, 5), c.isDown ? 1.05 : 0.96,
+          const r = (Math.floor(c.rnd() * 5) - 2) * 9;
+          return hit(r, r * 0.4, 5 + dip(c.isDown, 6), c.isDown ? 1.05 : 0.96,
             c.quad ? 0.5 : 0.1, 0.5, c.isDown ? 5 : 0,
             c.isDown ? [(c.rnd() - 0.5) * 9, (c.rnd() - 0.5) * 7] : null);
         },
       },
       {
-        name: 'loom-assault', energy: 0.95, entry: [0, 0, 6, 1.05], halo: 0.8,
+        name: 'loom-assault', energy: 0.95, entry: [0, 0, 8, 1.05], halo: 0.8,
         pose(b, c) {
-          return hit(0, 0, 6 + dip(c.isDown, 7), c.isDown ? 1.09 : 0.95, 0,
+          return hit(0, 0, 8 + dip(c.isDown, 9), c.isDown ? 1.09 : 0.95, 0,
             c.isDown ? 0.4 : 0.7, c.isDown ? 5 : 0);
         },
       },
       {
-        name: 'stomp-cycle', energy: 1.0, entry: [6, 3, 8, 1.04],
+        name: 'stomp-cycle', energy: 1.0, entry: [8, 4, 10, 1.04],
         pose(b, c) {
-          const r = side2(b, c.lead) * 10;
-          return hit(r, r * 0.5, 8 + dip(c.isDown, 9), c.isDown ? 1.07 : 0.96, 0.05, 0.8, c.isDown ? 5 : 0);
+          const r = side2(b, c.lead) * 13;
+          return hit(r, r * 0.5, 10 + dip(c.isDown, 11), c.isDown ? 1.07 : 0.96, 0.05, 0.8, c.isDown ? 5 : 0);
         },
       },
       {
-        name: 'hardcore-release', energy: 0.5, entry: [4, 2, 3, 1],
+        name: 'hardcore-release', energy: 0.5, entry: [5, 2, 4, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 6 * (1 - b / 20); // mechanical wind-down
-          return flow(r, r * 0.5, 3 + dip(c.isDown, 3), 1, 0.35, 1.4, c.isDown ? 2 : 0);
+          const r = side2(b, c.lead) * 8 * (1 - b / 20); // mechanical wind-down
+          return flow(r, r * 0.5, 4 + dip(c.isDown, 4), 1, 0.35, 1.4, c.isDown ? 2 : 0);
         },
       },
     ],
@@ -384,8 +387,12 @@ export function getBeatPose(tierIdx, phraseId, b, variant, energy, nextEntry) {
   const raw = phrase.pose(b, { isDown, quad: b % 4 === 0, m4: b % 4, m8: b % 8, lead: variant.lead, rnd });
 
   // Amplitude chain: establish ramp x energy arc x variant jitter.
-  const establish = b < 4 ? 0.7 + 0.1 * b : 1;
-  const k = establish * (0.85 + 0.2 * energy) * variant.jitter;
+  // Tiers 2-3 (club/hardcore) skip the establish ramp — they hit at FULL
+  // power from beat 0; chill/groovy keep the 4-beat wind-up.
+  const establish = (tierIdx >= 2 || b >= 4) ? 1 : 0.7 + 0.1 * b;
+  // Raised floor (was 0.85 + 0.2 * energy): the old chain averaged ~0.8x,
+  // which is what made the dance read as subtle. New range [0.95, 1.10].
+  const k = establish * (0.95 + 0.15 * energy) * variant.jitter;
   let r = raw.r * k;
   let tx = raw.tx * k;
   let ty = raw.ty * k;
