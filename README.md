@@ -42,7 +42,7 @@ Her personality shifts depending on the speed of the music:
 ### ⚠️ Prerequisite for Dancing
 For AXiDOS to sync her movements to the beat, **she needs to know the BPM of the currently playing song**. 
 
-You will need an integration that provides a BPM sensor for your media player. I highly recommend using **[SongBPM-26](https://github.com/adix992/SongBPM-26)**, an integration specifically created to pull real-time track BPMs for this exact purpose.
+You will need an integration that provides a BPM sensor for your media player. I highly recommend using **[AX-BPM](https://github.com/Axildor/AX-BPM)**, an integration specifically created to pull real-time track BPMs for this exact purpose.
 
 ## 📦 Installation
 
