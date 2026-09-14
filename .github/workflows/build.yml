@@ -27,6 +27,12 @@ jobs:
       - name: Build bundle
         run: npm run verify
 
+      - name: Verify bop tail behavior
+        run: node scripts/verify_bop_tail.mjs
+
+      - name: Verify dance smoothness
+        run: node scripts/verify_dance_smoothness.mjs
+
       - name: Commit rebuilt bundle if changed
         if: github.event_name == 'push'
         run: |

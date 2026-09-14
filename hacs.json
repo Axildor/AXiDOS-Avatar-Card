@@ -1,5 +1,6 @@
 {
   "name": "AXiDOS Avatar Card",
   "render_readme": true,
-  "filename": "axidos-card.js"
+  "filename": "axidos-card.js",
+  "homeassistant": "2024.8.0"
 }

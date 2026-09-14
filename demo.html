@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXiDOS Avatar Card — Demo & Debug Studio</title>
+<style>
+  /* ============================================================
+     HA-like theme variables — the card reads these for authentic
+     dashboard-identical screenshots.
+     ============================================================ */
+  :root {
+    --ha-card-background: #1c1c1c;
+    --card-background-color: #1c1c1c;
+    --ha-card-border-radius: 12px;
+    --primary-background-color: #111111;
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --divider-color: rgba(255, 255, 255, 0.12);
+    --accent-color: #ff9800;
+    --paper-input-container-color: var(--secondary-text-color);
+  }
+  :root.theme-light {
+    --ha-card-background: #ffffff;
+    --card-background-color: #ffffff;
+    --primary-background-color: #f2f4f9;
+    --primary-text-color: #212121;
+    --secondary-text-color: #616161;
+    --divider-color: rgba(0, 0, 0, 0.12);
+  }
+  :root.theme-checker {
+    --ha-card-background: transparent;
+    --card-background-color: transparent;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100vh; }
+  body {
+    font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    background: var(--primary-background-color);
+    color: var(--primary-text-color);
+    transition: background 0.4s ease;
+  }
+  /* Checkerboard backdrop for transparent_bg screenshots */
+  body.theme-checker {
+    background:
+      repeating-conic-gradient(#3a3a3a 0% 25%, #2b2b2b 0% 50%) 0 0 / 24px 24px;
+  }
+  body.theme-light { background: var(--primary-background-color); }
+
+  /* Clean mode: hide all chrome for screenshots / GIF recording */
+  body.clean .chrome { display: none !important; }
+
+  .layout {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+    align-items: flex-start;
+  }
+  .stage {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 12px;
+    border-radius: 12px;
+    border: 1px dashed var(--divider-color);
+  }
+  .stage-hint { font-size: 12px; color: var(--secondary-text-color); }
+  #card-slot { width: 420px; max-width: 100%; }
+
+  /* ============================================================
+     Debug panel
+     ============================================================ */
+  .panel {
+    width: 320px;
+    flex: none;
+    background: var(--ha-card-background, #1c1c1c);
+    border: 1px solid var(--divider-color);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: sticky;
+    top: 20px;
+  }
+  .panel h1 { font-size: 15px; margin: 0; }
+  .panel h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--secondary-text-color); margin: 6px 0 2px;
+  }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    font: inherit; font-size: 13px;
+    background: rgba(128, 128, 128, 0.15);
+    color: var(--primary-text-color);
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  button:hover { background: rgba(128, 128, 128, 0.3); }
+  button.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #111;
+    font-weight: 600;
+  }
+  button.primary { background: #2f6fde; border-color: #2f6fde; color: #fff; }
+  button.primary:hover { background: #4a83e8; }
+
+  .ctl { display: flex; flex-direction: column; gap: 4px; }
+  .ctl label {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--secondary-text-color);
+  }
+  .ctl label output { color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--accent-color); }
+
+  .switch-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
+  .switch-row input { accent-color: var(--accent-color); width: 18px; height: 18px; }
+
+  .kbd { font-size: 11px; color: var(--secondary-text-color); }
+  .kbd code {
+    background: rgba(128,128,128,0.2); border-radius: 4px; padding: 1px 5px;
+    font-family: monospace;
+  }
+
+  /* ============================================================
+     Card Config modal (mirrors the HA visual editor)
+     ============================================================ */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0, 0, 0, 0.55);
+    display: none; align-items: center; justify-content: center;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    width: 460px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    background: var(--ha-card-background, #1c1c1c);
+    border: 1px solid var(--divider-color);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  }
+  .modal h2 { margin: 0; font-size: 16px; }
+  .modal .field { display: flex; flex-direction: column; gap: 4px; }
+  .modal .field > label { font-size: 13px; font-weight: 600; }
+  .modal .field > small { font-size: 11px; color: var(--secondary-text-color); }
+  .modal input[type="text"], .modal select {
+    font: inherit; font-size: 13px;
+    background: rgba(128, 128, 128, 0.12);
+    color: var(--primary-text-color);
+    border: 1px solid var(--divider-color);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .modal details {
+    border: 1px solid var(--divider-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .modal details summary { font-size: 13px; font-weight: 600; cursor: pointer; }
+  .modal details .inner { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+  .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- ==================== Stage ==================== -->
+  <div class="stage">
+    <div id="card-slot"></div>
+    <div class="stage-hint chrome">Click the card to trigger the tap-bop. Press <b>H</b> to hide all UI for clean captures.</div>
+  </div>
+
+  <!-- ==================== Debug panel ==================== -->
+  <div class="panel chrome">
+    <h1>🎛️ AXiDOS Demo Studio</h1>
+
+    <h2>Assistant State</h2>
+    <div class="btn-row" id="state-buttons">
+      <button data-state="idle" class="active">Idle</button>
+      <button data-state="listening">Listening</button>
+      <button data-state="processing">Processing</button>
+      <button data-state="responding">Responding</button>
+      <button data-state="dancing">Dancing</button>
+    </div>
+
+    <h2>BPM (dance tempo)</h2>
+    <div class="ctl">
+      <label>BPM <output id="bpm-out">120</output></label>
+      <input type="range" id="bpm-slider" min="60" max="200" step="1" value="120">
+    </div>
+
+    <h2>Backdrop (for screenshots)</h2>
+    <div class="btn-row" id="theme-buttons">
+      <button data-theme="dark" class="active">HA Dark</button>
+      <button data-theme="light">HA Light</button>
+      <button data-theme="checker">Transparent</button>
+    </div>
+
+    <h2>GIF / Capture Helpers</h2>
+    <div class="btn-row">
+      <button id="cycle-btn">▶ Auto-cycle states</button>
+    </div>
+    <div class="ctl">
+      <label>Cycle dwell <output id="dwell-out">4.0s</output></label>
+      <input type="range" id="dwell-slider" min="1" max="10" step="0.5" value="4">
+    </div>
+    <div class="btn-row">
+      <button id="hide-btn">🫥 Clean mode (H)</button>
+    </div>
+
+    <h2>Configuration</h2>
+    <div class="btn-row">
+      <button id="config-btn" class="primary">⚙️ Card Config</button>
+    </div>
+
+    <p class="kbd">
+      Shortcuts: <code>1–5</code> states · <code>H</code> clean mode ·
+      <code>C</code> config · <code>Space</code> tap-bop
+    </p>
+  </div>
+</div>
+
+<!-- ==================== Card Config modal ==================== -->
+<div class="modal-backdrop chrome" id="config-modal">
+  <div class="modal">
+    <h2>⚙️ Card Config</h2>
+    <p class="stage-hint">Mirrors the HA visual editor. Changes apply live via <code>setConfig()</code>.</p>
+
+    <div class="field">
+      <label for="cfg-entity">Voice Assistant Entity</label>
+      <input type="text" id="cfg-entity" placeholder="assist_satellite.demo">
+      <small>The assist_satellite entity AXiDOS reacts to (required).</small>
+    </div>
+    <div class="field">
+      <label for="cfg-media">Media Player Entity</label>
+      <input type="text" id="cfg-media" placeholder="media_player.demo">
+      <small>When this media player plays, AXiDOS dances to the BPM sensor.</small>
+    </div>
+    <div class="field">
+      <label for="cfg-bpm">BPM Sensor Entity</label>
+      <input type="text" id="cfg-bpm" placeholder="sensor.demo_bpm">
+      <small>Sensor providing the current song BPM. Defaults to 120.</small>
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label for="cfg-delay">Response Delay</label>
+        <input type="range" id="cfg-delay" min="0" max="16" step="0.5" value="0">
+        <small>Seconds to wait before switching from Processing to Responding.</small>
+      </div>
+      <div class="field">
+        <label for="cfg-zoom">Zoom Scale</label>
+        <input type="range" id="cfg-zoom" min="10" max="200" step="1" value="85">
+        <small>Scale % of the model. Above 100 the card grows to fit.</small>
+      </div>
+    </div>
+
+    <div class="switch-row">
+      <span>Transparent Background</span>
+      <input type="checkbox" id="cfg-transparent">
+    </div>
+
+    <details>
+      <summary>Tap / Press Configuration</summary>
+      <div class="inner">
+        <div class="switch-row">
+          <span>Enable Tap to Bop</span>
+          <input type="checkbox" id="cfg-tap-enabled" checked>
+        </div>
+        <div class="field">
+          <label for="cfg-tap-action">Tap Action</label>
+          <select id="cfg-tap-action">
+            <option value="none" selected>none</option>
+            <option value="more-info">more-info</option>
+            <option value="toggle">toggle</option>
+            <option value="navigate">navigate</option>
+            <option value="call-service">call-service</option>
+          </select>
+          <small>Optional Home Assistant action fired on tap.</small>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Animation Speed <output id="cfg-tap-speed-out">0.5</output></label>
+            <input type="range" id="cfg-tap-speed" min="0.1" max="2" step="0.05" value="0.5">
+            <small>0.1 = slow, 0.5 = normal, 2.0 = fast.</small>
+          </div>
+          <div class="field">
+            <label>Bop Intensity <output id="cfg-tap-intensity-out">1.0</output></label>
+            <input type="range" id="cfg-tap-intensity" min="0.5" max="2" step="0.1" value="1">
+            <small>How far the head pulls back.</small>
+          </div>
+          <div class="field">
+            <label>Rebound Bounces <output id="cfg-tap-bounces-out">5</output></label>
+            <input type="range" id="cfg-tap-bounces" min="1" max="20" step="1" value="5">
+            <small>Full oscillation cycles before settling.</small>
+          </div>
+          <div class="field">
+            <label>Idle Resume Point <output id="cfg-tap-resume-out">0.3</output></label>
+            <input type="range" id="cfg-tap-resume" min="0.05" max="0.8" step="0.05" value="0.3">
+            <small>Point in the bop tail where the paused background resumes.</small>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div class="modal-actions">
+      <button id="config-reset">Reset defaults</button>
+      <button id="config-close" class="primary">Done</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./axidos-card.js"></script>
+<script type="module">
+  // ============================================================
+  // Mock hass + card wiring.
+  // The card only reads hass.states[<entity>].state for three
+  // entities, so a plain object drives the exact production
+  // code path (set hass → diff → resolveState → applyState).
+  // ============================================================
+
+  const VOICE = 'assist_satellite.demo';
+  const MEDIA = 'media_player.demo';
+  const BPM_SENSOR = 'sensor.demo_bpm';
+
+  const DEFAULT_CONFIG = {
+    entity: VOICE,
+    media_entity: MEDIA,
+    bpm_entity: BPM_SENSOR,
+    respond_delay: 0,
+    zoom: 85,
+    transparent_bg: false,
+    tap_enabled: true,
+    tap_speed: 0.5,
+    tap_bounces: 5,
+    tap_intensity: 1.0,
+    tap_bop_resume: 0.3,
+    tap_action: { action: 'none' },
+  };
+
+  const mock = {
+    voice: 'idle',     // raw assist_satellite state string
+    media: 'paused',   // raw media_player state string
+    bpm: '120',        // raw sensor state string
+  };
+
+  function buildHass() {
+    return {
+      states: {
+        [VOICE]: { state: mock.voice },
+        [MEDIA]: { state: mock.media },
+        [BPM_SENSOR]: { state: mock.bpm },
+      },
+    };
+  }
+
+  const slot = document.getElementById('card-slot');
+  const card = document.createElement('axidos-card');
+  slot.appendChild(card);
+
+  let currentConfig = { ...DEFAULT_CONFIG };
+  card.setConfig(currentConfig);
+  card.hass = buildHass();
+
+  function pushHass() {
+    card.hass = buildHass();
+  }
+
+  // ============================================================
+  // State buttons — dancing = idle voice + playing media,
+  // exactly how resolveState() promotes idle → dancing.
+  // ============================================================
+  const STATE_RAW = {
+    idle:        { voice: 'idle',        media: 'paused'  },
+    listening:   { voice: 'listening',   media: 'paused'  },
+    processing:  { voice: 'processing',  media: 'paused'  },
+    responding:  { voice: 'responding',  media: 'paused'  },
+    dancing:     { voice: 'idle',        media: 'playing' },
+  };
+  const stateButtons = [...document.querySelectorAll('#state-buttons button')];
+
+  function setState(name) {
+    const s = STATE_RAW[name];
+    if (!s) return;
+    mock.voice = s.voice;
+    mock.media = s.media;
+    stateButtons.forEach((b) => b.classList.toggle('active', b.dataset.state === name));
+    pushHass();
+  }
+  stateButtons.forEach((b) => b.addEventListener('click', () => setState(b.dataset.state)));
+
+  // ============================================================
+  // BPM slider
+  // ============================================================
+  const bpmSlider = document.getElementById('bpm-slider');
+  const bpmOut = document.getElementById('bpm-out');
+  bpmSlider.addEventListener('input', () => {
+    mock.bpm = bpmSlider.value;
+    bpmOut.textContent = bpmSlider.value;
+    pushHass();
+  });
+
+  // ============================================================
+  // Theme switcher
+  // ============================================================
+  const themeButtons = [...document.querySelectorAll('#theme-buttons button')];
+  themeButtons.forEach((b) => b.addEventListener('click', () => {
+    document.documentElement.classList.remove('theme-light', 'theme-checker');
+    document.body.classList.remove('theme-light', 'theme-checker');
+    if (b.dataset.theme === 'light') {
+      document.documentElement.classList.add('theme-light');
+      document.body.classList.add('theme-light');
+    } else if (b.dataset.theme === 'checker') {
+      document.documentElement.classList.add('theme-checker');
+      document.body.classList.add('theme-checker');
+    }
+    themeButtons.forEach((x) => x.classList.toggle('active', x === b));
+  }));
+
+  // ============================================================
+  // Auto-cycle: walks all 5 states — one pass = perfect GIF loop
+  // ============================================================
+  const cycleBtn = document.getElementById('cycle-btn');
+  const dwellSlider = document.getElementById('dwell-slider');
+  const dwellOut = document.getElementById('dwell-out');
+  dwellSlider.addEventListener('input', () => { dwellOut.textContent = `${Number(dwellSlider.value).toFixed(1)}s`; });
+
+  let cycleTimer = null;
+  let cycleIdx = 0;
+  cycleBtn.addEventListener('click', () => {
+    if (cycleTimer) {
+      clearInterval(cycleTimer);
+      cycleTimer = null;
+      cycleBtn.textContent = '▶ Auto-cycle states';
+      cycleBtn.classList.remove('active');
+      return;
+    }
+    const order = ['idle', 'listening', 'processing', 'responding', 'dancing'];
+    cycleBtn.textContent = '⏸ Stop cycling';
+    cycleBtn.classList.add('active');
+    const tick = () => {
+      setState(order[cycleIdx % order.length]);
+      cycleIdx += 1;
+    };
+    tick();
+    cycleTimer = setInterval(tick, parseFloat(dwellSlider.value) * 1000);
+  });
+
+  // ============================================================
+  // Clean mode (hide all chrome)
+  // ============================================================
+  const hideBtn = document.getElementById('hide-btn');
+  function toggleClean() {
+    document.body.classList.toggle('clean');
+    hideBtn.textContent = document.body.classList.contains('clean') ? '👁 Show UI (H)' : '🫥 Clean mode (H)';
+  }
+  hideBtn.addEventListener('click', toggleClean);
+
+  // ============================================================
+  // Card Config modal — mirrors the HA visual editor schema.
+  // Every change goes through card.setConfig() so the production
+  // sanitization/clamping path is exercised.
+  // ============================================================
+  const modal = document.getElementById('config-modal');
+  const $ = (id) => document.getElementById(id);
+
+  function openConfig() {
+    // Sync modal controls from the live config
+    $('cfg-entity').value = currentConfig.entity || '';
+    $('cfg-media').value = currentConfig.media_entity || '';
+    $('cfg-bpm').value = currentConfig.bpm_entity || '';
+    $('cfg-delay').value = currentConfig.respond_delay ?? 0;
+    $('cfg-zoom').value = currentConfig.zoom ?? 85;
+    $('cfg-transparent').checked = !!currentConfig.transparent_bg;
+    $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
+    $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
+    $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
+    $('cfg-tap-intensity').value = currentConfig.tap_intensity ?? 1;
+    $('cfg-tap-bounces').value = currentConfig.tap_bounces ?? 5;
+    $('cfg-tap-resume').value = currentConfig.tap_bop_resume ?? 0.3;
+    syncOutputs();
+    modal.classList.add('open');
+  }
+  function closeConfig() { modal.classList.remove('open'); }
+
+  function syncOutputs() {
+    $('cfg-tap-speed-out').textContent = $('cfg-tap-speed').value;
+    $('cfg-tap-intensity-out').textContent = $('cfg-tap-intensity').value;
+    $('cfg-tap-bounces-out').textContent = $('cfg-tap-bounces').value;
+    $('cfg-tap-resume-out').textContent = $('cfg-tap-resume').value;
+  }
+
+  function applyConfigFromModal() {
+    const next = {
+      ...currentConfig,
+      entity: $('cfg-entity').value.trim() || VOICE,
+      media_entity: $('cfg-media').value.trim(),
+      bpm_entity: $('cfg-bpm').value.trim(),
+      respond_delay: parseFloat($('cfg-delay').value),
+      zoom: parseInt($('cfg-zoom').value, 10),
+      transparent_bg: $('cfg-transparent').checked,
+      tap_enabled: $('cfg-tap-enabled').checked,
+      tap_action: { action: $('cfg-tap-action').value },
+      tap_speed: parseFloat($('cfg-tap-speed').value),
+      tap_intensity: parseFloat($('cfg-tap-intensity').value),
+      tap_bounces: parseInt($('cfg-tap-bounces').value, 10),
+      tap_bop_resume: parseFloat($('cfg-tap-resume').value),
+    };
+    try {
+      card.setConfig(next); // throws if entity is empty — keep last good config
+      currentConfig = next;
+    } catch (err) {
+      console.warn('demo: invalid config rejected by sanitizeConfig:', err.message);
+    }
+  }
+
+  $('config-btn').addEventListener('click', openConfig);
+  $('config-close').addEventListener('click', () => { applyConfigFromModal(); closeConfig(); });
+  $('config-reset').addEventListener('click', () => {
+    currentConfig = { ...DEFAULT_CONFIG };
+    card.setConfig(currentConfig);
+    openConfig(); // re-sync controls to defaults
+  });
+  modal.addEventListener('click', (e) => { if (e.target === modal) { applyConfigFromModal(); closeConfig(); } });
+  ['cfg-tap-speed', 'cfg-tap-intensity', 'cfg-tap-bounces', 'cfg-tap-resume'].forEach((id) => {
+    $(id).addEventListener('input', syncOutputs);
+  });
+
+  // ============================================================
+  // Keyboard shortcuts
+  // ============================================================
+  const KEY_STATES = { '1': 'idle', '2': 'listening', '3': 'processing', '4': 'responding', '5': 'dancing' };
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (KEY_STATES[e.key]) setState(KEY_STATES[e.key]);
+    else if (e.key === 'h' || e.key === 'H') toggleClean();
+    else if (e.key === 'c' || e.key === 'C') (modal.classList.contains('open') ? closeConfig() : openConfig());
+    else if (e.key === 'Escape') closeConfig();
+    else if (e.key === ' ') {
+      e.preventDefault();
+      card._tapHandler?.(e); // trigger the tap-bop without a real click
+    }
+  });
+</script>
+
+</body>
+</html>

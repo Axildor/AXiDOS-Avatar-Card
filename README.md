@@ -1,3 +1,8 @@
+[![GitHub Release](https://img.shields.io/github/v/release/Axildor/AXiDOS-Avatar-Card?style=flat-square)](https://github.com/Axildor/AXiDOS-Avatar-Card/releases)
+[![HACS Status](https://img.shields.io/badge/HACS-Custom-orange.svg?style=flat-square)](https://github.com/hacs/integration)
+[![Build](https://img.shields.io/github/actions/workflow/status/Axildor/AXiDOS-Avatar-Card/build.yml?branch=main&label=Build&style=flat-square)](https://github.com/Axildor/AXiDOS-Avatar-Card/actions/workflows/build.yml)
+[![Buy me a tea](https://img.shields.io/badge/Buy_me_a_tea-☕-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/axildor)
+
 # AXiDOS Avatar Card for Home Assistant
 
 > Inspired by GLaDOS from Portal. Not affiliated with, endorsed, or sponsored by Valve Corporation.
@@ -88,6 +93,16 @@ tap_action:
 | `tap_intensity` | number | Optional | How far the head pulls back, `0.5`–`2`. Default is `1.0`. |
 | `tap_bop_resume` | number | Optional | Point in the bop tail (fraction of the actual peak bounce) where the paused background resumes, `0.05`–`0.8`. Default is `0.3`. Tapping freezes all in-flight head motion (idle poses and dance moves) so the bop owns the head exclusively — the beat clock keeps running, so the dance stays synced — and the background melds back in at this point while the last small bounces are still finishing. The peak is measured once at the top of the first bounce, so the resume point is exact and the slider is honest. Re-tapping mid-bop always amplifies the bounce (energy-add kick, never dampens, no matter where in the swing you tap) and re-arms the meld point from the new bounce's peak. |
 
+## 🎬 Demo & Debug Studio
+
+Open `demo.html` in a browser (serve the repo root, e.g. `npx serve .` or `python3 -m http.server`) to run the card outside Home Assistant with a mock `hass` object. It drives the exact production code path (`set hass` → state diffing → `applyState`), so what you see is what your dashboard gets.
+
+Use it to:
+* **Preview all states** — Idle / Listening / Processing / Responding / Dancing buttons (or keys `1`–`5`), plus a BPM slider to test the dance engine at any tempo.
+* **Take screenshots** — switch backdrops between HA Dark, HA Light, and a transparent checkerboard; press `H` for clean mode that hides all UI.
+* **Record GIFs** — the auto-cycle button walks through every state on a timer for a one-pass capture.
+* **Tweak configuration live** — the ⚙️ **Card Config** popup mirrors the HA visual editor (entities, response delay, zoom, transparent background, and all tap-physics options) and applies changes through `setConfig()`.
+
 ## 🧑‍💻 Development
 
 The card source lives in small, focused ES modules under `src/` and is bundled into the single `axidos-card.js` file that HACS distributes.
@@ -128,3 +143,22 @@ This card is completely self-contained. It uses no external image files (everyth
 * **Zero-Drift Sync:** Uses `performance.now()` high-resolution timestamps to ensure dance moves stay locked to the beat during long playback sessions.
 * **Firehose Gatekeeping:** Implements state-caching to ensure the card only recalculates animations when your tracked entities change, ignoring irrelevant Home Assistant state traffic.
 * **Resource Management:** Automatically destroys all active timers and animation loops when the card is removed from the DOM to prevent memory leaks.
+
+---
+
+## ☕ Support the Project
+
+I'm a solo developer on disability building Home Assistant integrations
+and add-ons independently. Your support keeps servers online, API quotas
+funded, and the black tea brewing while I debug JavaScript.
+
+If this card is useful to you, there's no obligation — but any support
+is highly appreciated.
+
+[![Buy me a tea](https://img.shields.io/badge/Buy_me_a_tea-on_Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/axildor)
+
+---
+
+## License
+
+MIT
