@@ -7,7 +7,8 @@
 
 > Inspired by GLaDOS from Portal. Not affiliated with, endorsed, or sponsored by Valve Corporation.
 
-<img width="954" height="439" alt="image" src="https://github.com/user-attachments/assets/8cf8be88-e375-46d2-9fb8-7db2061b308c" />
+<img width="1649" height="417" alt="states preview" src="https://github.com/user-attachments/assets/f4fa68f7-e707-4e89-9402-914a1879048f" />
+
 
 A highly responsive, fully animated AXiDOS custom card for Home Assistant. Built using zero-dependency CSS and SVG transitions, this card brings AXiDOS to life on your dashboard as a visual interface for your Voice Assistant satellites.
 
