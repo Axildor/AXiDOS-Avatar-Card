@@ -95,7 +95,9 @@ tap_action:
 
 ## 🎬 Demo & Debug Studio
 
-Open `demo.html` in a browser (serve the repo root, e.g. `npx serve .` or `python3 -m http.server`) to run the card outside Home Assistant with a mock `hass` object. It drives the exact production code path (`set hass` → state diffing → `applyState`), so what you see is what your dashboard gets.
+Download `demo.html` from the latest release and **double-click it** — it's fully standalone (the card bundle is inlined at build time) and runs offline in any modern browser, no server needed. It runs the card outside Home Assistant with a mock `hass` object, driving the exact production code path (`set hass` → state diffing → `applyState`), so what you see is what your dashboard gets.
+
+> The committed `demo.html` is a generated artifact — edit `demo.template.html` instead; `npm run build` regenerates the demo with the current bundle inlined.
 
 Use it to:
 * **Preview all states** — Idle / Listening / Processing / Responding / Dancing buttons (or keys `1`–`5`), plus a BPM slider to test the dance engine at any tempo.
