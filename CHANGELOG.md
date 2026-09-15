@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## 5.1.0
+## 5.3.0
 
 ### The Dance Engine, rebuilt from the legacy choreography
 
