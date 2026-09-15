@@ -83,6 +83,7 @@ function makeAnimator() {
     setLid() {}, setBaseLid(v) { this.currentBaseLid = v; },
     setPupil() {}, setBellows(p, d) { this._calls.setBellows.push([p, d]); },
     setLEDs(c, o) { this.currentLedColor = c; this.currentLedOpacity = o; this._calls.setLEDs.push([c, o]); },
+    setLedVars(c, o) { this._calls.setLedVars = this._calls.setLedVars || []; this._calls.setLedVars.push([c, o]); },
     freezeHeadMotion() { this._calls.freezeHeadMotion++; },
     resetBopLayer() {
       this._calls.resetBopLayer++;

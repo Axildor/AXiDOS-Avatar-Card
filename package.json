@@ -1,6 +1,6 @@
 {
   "name": "axidos-avatar-card",
-  "version": "1.0.0",
+  "version": "5.1.0",
   "description": "AXiDOS Avatar Card for Home Assistant — modular source, bundled to a single HACS-distributable file",
   "type": "module",
   "scripts": {

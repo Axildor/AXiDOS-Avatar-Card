@@ -32,6 +32,21 @@ export class AxidosAnimator {
       ledMatrices: root.querySelectorAll('.led-matrix'),
     };
 
+    // LED custom-property targets: the ONLY consumers of --led-color /
+    // --led-opacity are the .led-dot rects (inside the two .led-matrix
+    // groups) and the four #ind-* circles. Writing the vars here instead of
+    // on the SVG root keeps the custom-property invalidation scoped to these
+    // six elements instead of the whole subtree.
+    this.ledVarTargets = [
+      ...root.querySelectorAll('.led-matrix'),
+      root.getElementById('ind-l1'),
+      root.getElementById('ind-l2'),
+      root.getElementById('ind-r1'),
+      root.getElementById('ind-r2'),
+    ].filter(Boolean);
+    this._lastLedColor = null;
+    this._lastLedOpacity = null;
+
     // Mutable visual state (read by bop save/restore, lid loop, etc.)
     this.currentBaseLid = 0;
     this.currentLedColor = '#ffb800';
@@ -178,10 +193,25 @@ export class AxidosAnimator {
     }
   }
 
+  /**
+   * Write the LED custom properties ONLY on the consumer elements (matrix
+   * groups + indicator dots) — never on the SVG root, where a write would
+   * invalidate the entire subtree. Skips the writes entirely when both
+   * values are unchanged since the last call.
+   */
+  setLedVars(color, opacity) {
+    if (color === this._lastLedColor && opacity === this._lastLedOpacity) return;
+    this._lastLedColor = color;
+    this._lastLedOpacity = opacity;
+    for (const el of this.ledVarTargets) {
+      el.style.setProperty('--led-color', color);
+      el.style.setProperty('--led-opacity', opacity);
+    }
+  }
+
   setLEDs(color, opacity) {
     this.currentLedColor = color;
     this.currentLedOpacity = opacity;
-    this.el.svg.style.setProperty('--led-color', color);
-    this.el.svg.style.setProperty('--led-opacity', opacity);
+    this.setLedVars(color, opacity);
   }
 }

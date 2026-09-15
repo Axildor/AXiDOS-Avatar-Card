@@ -227,6 +227,11 @@
       <button id="config-btn" class="primary">⚙️ Card Config</button>
     </div>
 
+    <h2>Performance</h2>
+    <div class="ctl">
+      <label>Frame rate <code id="fps-out">—</code></label>
+    </div>
+
     <p class="kbd">
       Shortcuts: <code>1–5</code> states · <code>H</code> clean mode ·
       <code>C</code> config · <code>Space</code> tap-bop
@@ -558,6 +563,37 @@
       card._tapHandler?.(e); // trigger the tap-bop without a real click
     }
   });
+
+  // ============================================================
+  // FPS meter — lives OUTSIDE the card's shadow DOM and only reads
+  // rAF timing, so it never affects the card. EMA-smoothed frame
+  // delta + worst frame in a 500 ms window.
+  // ============================================================
+  const fpsOut = document.getElementById('fps-out');
+  let last = performance.now(), ema = 16.7, worst = 0, win = 0;
+  function fpsLoop(now) {
+    const dt = now - last; last = now;
+    if (dt > 0 && dt < 1000) { ema = ema * 0.9 + dt * 0.1; worst = Math.max(worst, dt); }
+    win += dt;
+    if (win >= 500) { fpsOut.textContent = (1000/ema).toFixed(0) + " fps · worst " + worst.toFixed(0) + " ms"; win = 0; worst = 0; }
+    requestAnimationFrame(fpsLoop);
+  }
+  requestAnimationFrame(fpsLoop);
+
+  // Long-task observer (Chromium-only) — feature-detected so unsupported
+  // browsers just skip it. Logs main-thread jank > 50 ms for profiling.
+  try {
+    if (typeof PerformanceObserver !== 'undefined') {
+      const po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          console.debug('longtask:', entry.duration.toFixed(0) + ' ms', entry.name);
+        }
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    }
+  } catch (err) {
+    // longtask unsupported (Firefox/Safari) — silently ignore.
+  }
 </script>
 
 </body>

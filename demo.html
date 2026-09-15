@@ -227,6 +227,11 @@
       <button id="config-btn" class="primary">⚙️ Card Config</button>
     </div>
 
+    <h2>Performance</h2>
+    <div class="ctl">
+      <label>Frame rate <code id="fps-out">—</code></label>
+    </div>
+
     <p class="kbd">
       Shortcuts: <code>1–5</code> states · <code>H</code> clean mode ·
       <code>C</code> config · <code>Space</code> tap-bop
@@ -556,13 +561,18 @@ function buildTemplate(config) {
          browser hoists it to its own GPU layer: per-frame transform writes
          (RAF spring loop, CSS transitions) then composite on the GPU instead
          of triggering main-thread SVG repaints. Applied ONLY to groups that
-         actually animate \u2014 each hint costs GPU memory. */
+         actually animate \u2014 each hint costs GPU memory. Includes the ambient
+         sway pivots (#body-pivot, #head-sway-pivot): their infinite CSS
+         keyframe rotations repaint the whole subtree every frame unless
+         promoted. */
       #axidos-head, #head-bop, #torso-swivel, #bellows,
-      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center {
+      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center,
+      #body-pivot, #head-sway-pivot {
         will-change: transform;
       }
       /* Rotation/scale groups need view-box coordinates for transform-origin. */
-      #axidos-head, #head-bop, #torso-swivel, #eye-center { transform-box: view-box; }
+      #axidos-head, #head-bop, #torso-swivel, #eye-center,
+      #body-pivot, #head-sway-pivot { transform-box: view-box; }
       /* Bop layer: dedicated transform group for the tap-bop spring so it
          composes additively with the head poses (#axidos-head) instead of
          fighting over one transform. Pivots at the neck like #axidos-head. */
@@ -607,14 +617,13 @@ function buildTemplate(config) {
           <radialGradient id="eyeGradProcess" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffddaa"/><stop offset="60%" stop-color="#ff6600"/><stop offset="85%" stop-color="#aa3300"/><stop offset="100%" stop-color="#220a00"/></radialGradient>
           <radialGradient id="eyeGradRespond" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffaaaa"/><stop offset="60%" stop-color="#ff2200"/><stop offset="85%" stop-color="#aa0000"/><stop offset="100%" stop-color="#220000"/></radialGradient>
           <radialGradient id="eyeGradDance" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#aaffaa"/><stop offset="55%" stop-color="#1DB954"/><stop offset="80%" stop-color="#0a5926"/><stop offset="100%" stop-color="#001a00"/></radialGradient>
-          <!-- softGlow is kept ONLY for the static faceplate inset (never
-               animates, rasterized once). Moving elements must NOT use SVG
-               filters: feGaussianBlur re-rasterizes on every transform write
-               and defeats compositor-layer promotion on Android WebView. -->
-          <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <!-- No SVG filters remain: feGaussianBlur re-rasterizes on every
+               transform write and defeats compositor-layer promotion on
+               Android WebView. The faceplate inset's soft fringe is faked
+               with stepped rects (see Group_Faceplate_Inset); the eye glow
+               uses the pre-blurred radial gradient below. -->
           <!-- Fake glow: pre-blurred radial gradient, rasterized once and
-               cached as a texture. Replaces filter: url(#softGlow) on the
-               eye layers + indicator dot. -->
+               cached as a texture. Used on the eye layers + indicator dot. -->
           <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
             <stop offset="45%" stop-color="#ffffff" stop-opacity="0.35"/>
@@ -630,6 +639,12 @@ function buildTemplate(config) {
           <clipPath id="cavityClip"><rect x="97" y="283.25" width="66" height="161.5" rx="33"/></clipPath>
           <clipPath id="trackClip"><rect x="107" y="293.25" width="46" height="141.5" rx="23"/></clipPath>
           <clipPath id="eyeballClip"><circle cx="130" cy="364" r="25.5"/></clipPath>
+          <!-- socketClip: hard geometric bound for the pupil. The iris
+               (r=17.6) sits inside the socket face (r=23), leaving only a
+               5.4 px translation budget \u2014 dance darts can request more.
+               Applied to a STATIC wrapper group (not #eye-pupil itself) so
+               the clip does not translate with the pupil it clips. -->
+          <clipPath id="socketClip"><circle cx="130" cy="364" r="23"/></clipPath>
         </defs>
         <g id="body-pivot">
           <g id="torso-swivel">
@@ -686,7 +701,13 @@ function buildTemplate(config) {
                 <rect x="75" y="232" width="130" height="247" rx="60" fill="url(#ceramicShadow)"/>
               </g>
               <g id="Group_Faceplate_Inset">
-                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6" filter="url(#softGlow)"/>
+                <!-- Stepped fake of the old 2px blur filter: two expanded
+                     black rects beneath the base rect approximate the blur's
+                     soft dark fringe without an SVG filter (zero re-raster
+                     cost). Static \u2014 rasterized once. -->
+                <rect x="91" y="277.25" width="80" height="175.5" rx="40" fill="#000" opacity="0.12"/>
+                <rect x="92" y="278.25" width="78" height="173.5" rx="39" fill="#000" opacity="0.30"/>
+                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6"/>
                 <rect x="91" y="277.25" width="78" height="173.5" rx="39" fill="url(#bezelGrad)" stroke="#1a1c22" stroke-width="1"/>
                 <rect x="93" y="279.25" width="74" height="169.5" rx="37" fill="none" stroke="#6a6d75" stroke-width="1.5"/>
                 <g clip-path="url(#cavityClip)">
@@ -706,7 +727,11 @@ function buildTemplate(config) {
                     <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
                     <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
                     <circle id="eye-halo" cx="130" cy="364" r="25" fill="url(#haloGradIdle)" opacity=".05"/>
-                    <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
+                    <!-- Static clip wrapper: socketClip must live on a PARENT
+                         of #eye-pupil \u2014 a clip on the pupil itself would
+                         translate along with it and clip nothing. -->
+                    <g clip-path="url(#socketClip)">
+                      <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
                       <!-- Pre-blurred glow halo (rasterized once) replaces the
                            per-frame feGaussianBlur that used to sit on each
                            eye layer \u2014 visually equivalent soft edge, zero
@@ -719,6 +744,7 @@ function buildTemplate(config) {
                       <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
                       <circle id="eye-center" cx="130" cy="364" r="6.6" fill="#ffe855" />
                       <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
+                      </g>
                     </g>
                     <g clip-path="url(#eyeballClip)">
                       <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>
@@ -765,6 +791,15 @@ var AxidosAnimator = class {
       dangerRing: root.getElementById("danger-ring"),
       ledMatrices: root.querySelectorAll(".led-matrix")
     };
+    this.ledVarTargets = [
+      ...root.querySelectorAll(".led-matrix"),
+      root.getElementById("ind-l1"),
+      root.getElementById("ind-l2"),
+      root.getElementById("ind-r1"),
+      root.getElementById("ind-r2")
+    ].filter(Boolean);
+    this._lastLedColor = null;
+    this._lastLedOpacity = null;
     this.currentBaseLid = 0;
     this.currentLedColor = "#ffb800";
     this.currentLedOpacity = "0.15";
@@ -891,11 +926,25 @@ var AxidosAnimator = class {
       this.el.headBop.style.transform = "translate3d(0,0,0) rotate(0deg) scale(1)";
     }
   }
+  /**
+   * Write the LED custom properties ONLY on the consumer elements (matrix
+   * groups + indicator dots) — never on the SVG root, where a write would
+   * invalidate the entire subtree. Skips the writes entirely when both
+   * values are unchanged since the last call.
+   */
+  setLedVars(color, opacity) {
+    if (color === this._lastLedColor && opacity === this._lastLedOpacity) return;
+    this._lastLedColor = color;
+    this._lastLedOpacity = opacity;
+    for (const el of this.ledVarTargets) {
+      el.style.setProperty("--led-color", color);
+      el.style.setProperty("--led-opacity", opacity);
+    }
+  }
   setLEDs(color, opacity) {
     this.currentLedColor = color;
     this.currentLedOpacity = opacity;
-    this.el.svg.style.setProperty("--led-color", color);
-    this.el.svg.style.setProperty("--led-opacity", opacity);
+    this.setLedVars(color, opacity);
   }
 };
 
@@ -1134,17 +1183,20 @@ function mulberry32(seed) {
   };
 }
 var ENERGY_WINDOWS = [0.5, 0.75, 1, 0.6];
+var ENERGY_MIN = 0.3;
+var ENERGY_MAX = 1.1;
+var DART_MAX = [3, 6, 6, 9];
 function getEnergy(dancePhase) {
-  const macro = (dancePhase % 64 + 64) % 64;
-  const win = Math.floor(macro / 16);
-  const b = macro % 16;
-  const cur = ENERGY_WINDOWS[win];
-  if (b < 12) return cur;
-  const next = ENERGY_WINDOWS[(win + 1) % 4];
-  return cur + (next - cur) * ((b - 12) / 3);
+  const phase = (dancePhase % 64 + 64) % 64;
+  const center = phase - 8;
+  const seg = Math.floor(center / 16);
+  const t = (center - seg * 16) / 16;
+  const from = ENERGY_WINDOWS[(seg % 4 + 4) % 4];
+  const to = ENERGY_WINDOWS[((seg + 1) % 4 + 4) % 4];
+  const base = from + (to - from) * (0.5 - 0.5 * Math.cos(t * Math.PI));
+  const wobble = 0.09 * Math.sin(2 * Math.PI * dancePhase / 97);
+  return Math.min(ENERGY_MAX, Math.max(ENERGY_MIN, base + wobble));
 }
-var dip = (isDown, depth) => isDown ? depth : -depth * 0.45;
-var side2 = (b, lead) => (Math.floor(b / 2) % 2 === 0 ? 1 : -1) * lead;
 var hit = (r, tx, ty, s, lid, durBeats, pump, dart) => ({
   r,
   tx,
@@ -1168,297 +1220,540 @@ var flow = (r, tx, ty, s, lid, durBeats, pump) => ({
   pump
 });
 var TIERS = [
-  // ---- Tier 0: chill (< 90 BPM) — all FLOW, slow suspended sways ----
+  // ---- Tier 0: chill (< 90 BPM) — slow pair-held sways, all FLOW ----
   {
     phrases: [
       {
-        name: "pendulum-sway",
-        energy: 0.3,
-        entry: [4, 2, 5, 1],
-        pose(b, c) {
-          const r = side2(b, c.lead) * 10;
-          return flow(r, r * 0.5, 5 + dip(c.isDown, 4), 1, 0.35, 1.9, c.isDown ? 2 : 0);
-        }
-      },
-      {
-        name: "crane-sweep",
+        name: "quad-tilt",
         energy: 0.45,
-        entry: [6, 2, 4, 1],
         pose(b, c) {
-          const r = c.lead * 12 * Math.sin(b * Math.PI / 8);
-          return flow(r, r * 0.4, 4 + dip(c.isDown, 3), 1, 0.3, 1.9, c.isDown ? 2 : 0);
+          const q = b - b % 2;
+          const pos = q % 4 === 0 ? 1 : -1;
+          return flow(pos * 8, pos * 5, 2, 1, 0.4, 2, c.isDown ? 2 : 0);
         }
       },
       {
-        name: "slow-loom",
-        energy: 0.35,
-        entry: [0, 0, 7, 1.02],
+        name: "vertical-bob",
+        energy: 0.4,
         pose(b, c) {
-          const r = Math.sin(b * Math.PI / 4) * 4;
-          return flow(r, r * 0.5, 7 + dip(c.isDown, 5), c.isDown ? 1.04 : 1, 0.45, 1.9, c.isDown ? 2 : 0);
+          const q = b - b % 2;
+          return flow(0, 0, q % 4 === 0 ? 15 : -5, 1, 0.4, 2, c.isDown ? 3 : 0);
         }
       },
       {
-        name: "bob-drift",
+        name: "sway-bob",
         energy: 0.5,
-        entry: [0, 0, 7, 1],
+        // ADAPTED (intent-restored): legacy r = sin(phase*PI/2)*6 evaluated
+        // only on even beats is identically 0 — the lateral sway never
+        // rendered. Restored as a pure sway (r = 0, tx on the sine) so tier 0
+        // has its body-shift phrase; see the tier-3 asymmetry note below.
         pose(b, c) {
-          const r = Math.sin(b * Math.PI / 2) * 5;
-          return flow(r, r * 0.6, 7 + dip(c.isDown, 7), 1, 0.3, 1.9, c.isDown ? 2 : 0);
+          const q = b - b % 2;
+          return flow(
+            0,
+            Math.sin(q * Math.PI / 4) * 5,
+            Math.cos(q * Math.PI / 4) * 8 + 4,
+            1,
+            0.4,
+            2,
+            c.isDown ? 2 : 0
+          );
+        }
+      },
+      {
+        name: "slow-arc",
+        energy: 0.5,
+        pose(b, c) {
+          const q = b - b % 2;
+          const pos = q % 8 < 4 ? 1 : -1;
+          return flow(pos * 10, pos * 4, 5, 1, 0.4, 2, c.isDown ? 2 : 0);
+        }
+      },
+      {
+        name: "rotation-sweep",
+        energy: 0.55,
+        pose(b, c) {
+          const q = b - b % 2;
+          return flow(Math.sin(q * Math.PI / 4) * 12, 0, 0, 1, 0.4, 2, c.isDown ? 2 : 0);
+        }
+      },
+      {
+        name: "dip-bob",
+        energy: 0.45,
+        pose(b, c) {
+          const q = b - b % 2;
+          const up = q % 4 === 0;
+          return flow(up ? 4 : -4, 0, up ? 12 : 2, up ? 1.03 : 1, 0.4, 2, c.isDown ? 3 : 0);
+        }
+      },
+      {
+        name: "accent-nod",
+        energy: 0.5,
+        pose(b, c) {
+          const q = b - b % 2;
+          const m8 = q % 8;
+          const r = m8 === 0 ? 12 : m8 === 4 ? -6 : 0;
+          return flow(r, r * 0.5, 8, 1, 0.4, 2, c.isDown ? 3 : 0);
         }
       },
       {
         name: "settle-rest",
-        energy: 0.15,
-        entry: [0, 0, 3, 1],
+        energy: 0.2,
+        halo: 0.8,
         pose(b, c) {
-          const r = Math.sin(b * Math.PI / 4) * 3;
-          return flow(r, r * 0.5, 3 + dip(c.isDown, 2), 1, 0.55, 1.9, c.isDown ? 1 : 0);
+          return flow(0, 0, 2, 1.05, 0.5, 2, c.isDown ? 1 : 0);
         }
       }
-    ],
-    edges: [
-      [[1, 0.35], [2, 0.3], [3, 0.25], [4, 0.1]],
-      [[0, 0.3], [2, 0.25], [3, 0.2], [4, 0.25]],
-      [[0, 0.3], [1, 0.25], [3, 0.2], [4, 0.25]],
-      [[0, 0.3], [1, 0.25], [2, 0.2], [4, 0.25]],
-      [[0, 0.4], [1, 0.3], [2, 0.3]]
     ]
   },
-  // ---- Tier 1: groovy (90-125 BPM) — confident hits on the beat ----
+  // ---- Tier 1: groovy (90-125 BPM) — confident hits, every-beat alternation ----
   {
     phrases: [
       {
-        name: "metronome-rock",
+        name: "headbang",
         energy: 0.5,
-        entry: [5, 2, 5, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * 10;
           return hit(
-            r,
-            r * 0.5,
-            5 + dip(c.isDown, 6),
-            c.isDown ? 1.02 : 0.99,
+            c.isDown ? 7 : -7,
+            0,
+            c.isDown ? 8 : -2,
+            c.isDown ? 1.02 : 1,
             0.2,
             0.8,
             c.isDown ? 3 : 0,
-            c.quad ? [(c.rnd() - 0.5) * 4, (c.rnd() - 0.5) * 3] : null
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
           );
         }
       },
       {
-        name: "dip-nod",
-        energy: 0.6,
-        entry: [0, 0, 8, 1.02],
+        name: "side-hold",
+        energy: 0.5,
         pose(b, c) {
-          return hit(0, 0, 8 + dip(c.isDown, 9), c.isDown ? 1.03 : 0.98, 0.25, 0.8, c.isDown ? 4 : 0);
-        }
-      },
-      {
-        name: "swivel-groove",
-        energy: 0.65,
-        entry: [6, 3, 6, 1],
-        pose(b, c) {
-          const r = c.lead * 10 * Math.sin(b * Math.PI / 4);
-          return hit(r, r * 0.5, 6 + dip(c.isDown, 4), 1, 0.2, 0.8, c.isDown ? 3 : 0);
-        }
-      },
-      {
-        name: "bounce-build",
-        energy: 0.8,
-        entry: [0, 0, 6, 1.02],
-        pose(b, c) {
-          const k = 0.6 + b / 16 * 0.8;
-          const r = side2(b, c.lead) * 8 * k;
+          const side = c.m4 < 2 ? 1 : -1;
           return hit(
-            r,
-            r * 0.5,
-            6 + dip(c.isDown, 9 * k),
-            c.isDown ? 1 + 0.04 * k : 1 - 0.02 * k,
-            0.15,
+            side * 8,
+            side * 4,
+            c.isDown ? 10 : 2,
+            1,
+            0.2,
             0.8,
-            c.isDown ? 3 + 2 * k : 0
+            c.isDown ? 3 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
           );
         }
       },
       {
-        name: "groove-release",
-        energy: 0.3,
-        entry: [4, 2, 4, 1],
+        name: "offbeat-lift",
+        energy: 0.55,
+        // Legacy overrode the tier easing with plain ease-in-out -> FLOW.
         pose(b, c) {
-          const r = side2(b, c.lead) * 6;
-          return flow(r, r * 0.5, 4 + dip(c.isDown, 3), 1, 0.4, 1.5, c.isDown ? 2 : 0);
+          const r = c.m4 === 0 ? 10 : c.m4 === 2 ? -10 : 0;
+          return flow(
+            r,
+            0,
+            c.m4 === 1 || c.m4 === 3 ? 12 : 0,
+            1,
+            0.2,
+            0.8,
+            c.isDown ? 2 : 0
+          );
+        }
+      },
+      {
+        name: "array-tilt",
+        energy: 0.6,
+        pose(b, c) {
+          return hit(
+            [10, 5, -10, -5][c.m4],
+            0,
+            [0, 8, 0, 8][c.m4],
+            1,
+            0.2,
+            0.8,
+            c.isDown ? 3 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
+          );
+        }
+      },
+      {
+        name: "pure-sway",
+        energy: 0.5,
+        pose(b, c) {
+          return hit(
+            0,
+            c.isDown ? 8 : -8,
+            4,
+            1,
+            0.2,
+            0.8,
+            c.isDown ? 2 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
+          );
+        }
+      },
+      {
+        name: "full-swing",
+        energy: 0.6,
+        pose(b, c) {
+          return hit(
+            c.isDown ? 10 : -10,
+            c.isDown ? 5 : -5,
+            c.isDown ? 10 : -5,
+            1,
+            0.2,
+            0.8,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
+          );
+        }
+      },
+      {
+        name: "offbeat-loom",
+        energy: 0.55,
+        pose(b, c) {
+          return hit(
+            (c.isDown ? 1 : -1) * 6,
+            0,
+            !c.isDown ? 14 : 0,
+            !c.isDown ? 1.04 : 1,
+            0.2,
+            0.8,
+            c.isDown ? 3 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
+          );
+        }
+      },
+      {
+        name: "triplet-side",
+        energy: 0.6,
+        // The one legacy block keyed on dancePhase % 3 — uses the GLOBAL beat
+        // counter passed through the context.
+        pose(b, c) {
+          const side = c.global % 3 === 0 ? -1 : 1;
+          return hit(
+            side * 8,
+            0,
+            c.isDown ? 8 : 0,
+            1,
+            0.2,
+            0.8,
+            c.isDown ? 3 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null
+          );
         }
       }
-    ],
-    edges: [
-      [[1, 0.3], [2, 0.3], [3, 0.25], [4, 0.15]],
-      [[0, 0.3], [2, 0.3], [3, 0.2], [4, 0.2]],
-      [[0, 0.25], [1, 0.25], [3, 0.3], [4, 0.2]],
-      [[0, 0.3], [2, 0.3], [4, 0.4]],
-      [[0, 0.35], [1, 0.35], [2, 0.3]]
     ]
   },
-  // ---- Tier 2: club (125-160 BPM) — sharp snaps, looms, the drop ----
+  // ---- Tier 2: club (125-160 BPM) — sharp snaps, tx arrays, punch-recover ----
   {
     phrases: [
       {
-        name: "dip-loom",
+        name: "power-tilt",
         energy: 0.7,
-        entry: [5, 2, 6, 1.02],
         pose(b, c) {
-          const r = side2(b, c.lead) * 7;
           return hit(
-            r,
-            r * 0.5,
-            6 + dip(c.isDown, 8),
-            c.isDown ? 1.04 : 0.97,
+            c.isDown ? 12 : -12,
+            c.isDown ? 6 : -6,
+            c.isDown ? 10 : -8,
+            1.03,
             c.isDown ? 0.1 : 0,
             0.6,
-            c.isDown ? 4 : 0
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
           );
         }
       },
       {
-        name: "snap-swivel",
+        name: "lateral-stutter",
+        energy: 0.65,
+        pose(b, c) {
+          return hit(
+            0,
+            [8, 0, -8, 0][c.m4],
+            c.isDown ? 5 : -5,
+            1,
+            c.m4 === 3 ? 0.6 : c.isDown ? 0.1 : 0,
+            0.6,
+            c.isDown ? 3 : 0
+          );
+        }
+      },
+      {
+        name: "scale-build",
+        energy: 0.6,
+        // Legacy excluded this block from pupil darts (its lid ramp IS the
+        // accent) — preserved.
+        pose(b, c) {
+          return hit(
+            c.isDown ? 5 : -5,
+            0,
+            c.isDown ? 5 : -2,
+            1 + c.m4 * 0.03,
+            0.4 - c.m4 * 0.1,
+            0.6,
+            c.isDown ? 3 : 0
+          );
+        }
+      },
+      {
+        name: "big-snap",
         energy: 0.85,
-        entry: [7, 3, 5, 1],
         pose(b, c) {
-          const r = side2(b, c.lead) * (c.isDown ? 15 : 4.5);
-          return hit(r, r * 0.4, 5 + dip(c.isDown, 5), 1, 0.1, c.isDown ? 0.5 : 0.6, c.isDown ? 4 : 0);
+          return hit(
+            c.isDown ? 15 : -15,
+            c.isDown ? 5 : -5,
+            8,
+            1,
+            c.isDown ? 0.1 : 0,
+            0.6,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
+          );
         }
       },
       {
-        name: "pendulum-pump",
+        name: "square-wave",
         energy: 0.75,
-        entry: [6, 3, 5, 1],
         pose(b, c) {
-          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 13;
-          return hit(r, r * 0.5, 5 + dip(c.isDown, 5), 1.01, 0.15, 0.6, c.isDown ? 4 : 0);
+          return hit(
+            [10, 10, -10, -10][c.m4],
+            [5, 5, -5, -5][c.m4],
+            [8, -2, 8, -2][c.m4],
+            1,
+            c.isDown ? 0.1 : 0,
+            0.6,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
+          );
         }
       },
       {
-        name: "peak-stomp",
-        energy: 1,
-        entry: [10, 5, 8, 1.03],
+        name: "linear-thrust",
+        energy: 0.7,
+        pose(b, c) {
+          return hit(
+            (c.isDown ? 1 : -1) * 10,
+            0,
+            c.isDown ? 12 : 4,
+            1.02,
+            c.isDown ? 0.1 : 0,
+            0.4,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
+          );
+        }
+      },
+      {
+        name: "hole-punch",
+        energy: 0.75,
+        pose(b, c) {
+          const odd = c.m4 === 1 || c.m4 === 3;
+          return hit(
+            odd ? 0 : c.m4 === 0 ? 12 : -12,
+            0,
+            odd ? 14 : -2,
+            1,
+            c.isDown ? 0.1 : 0,
+            0.6,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
+          );
+        }
+      },
+      {
+        name: "punch-recover",
+        energy: 0.9,
         halo: 0.8,
+        // Legacy texture, verbatim: the SAME pose on both beats, snapped on
+        // the downbeat (0.1 beats) and recovered slowly on the off-beat
+        // (0.8 beats).
         pose(b, c) {
-          const r = side2(b, c.lead) * 18;
-          return hit(r, r * 0.5, 8 + dip(c.isDown, 10), c.isDown ? 1.06 : 0.97, 0, 0.45, c.isDown ? 5 : 0);
-        }
-      },
-      {
-        name: "club-release",
-        energy: 0.4,
-        entry: [4, 2, 4, 1],
-        pose(b, c) {
-          const r = side2(b, c.lead) * 8;
-          return flow(r, r * 0.5, 4 + dip(c.isDown, 4), 1, 0.3, 1.6, c.isDown ? 2 : 0);
+          return hit(
+            12,
+            8,
+            c.isDown ? 8 : -4,
+            1,
+            c.isDown ? 0.1 : 0,
+            c.isDown ? 0.1 : 0.8,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 16, (c.rnd() - 0.5) * 12] : null
+          );
         }
       }
-    ],
-    edges: [
-      [[1, 0.3], [2, 0.3], [3, 0.2], [4, 0.2]],
-      [[0, 0.15], [2, 0.25], [3, 0.35], [4, 0.25]],
-      [[0, 0.2], [1, 0.3], [3, 0.3], [4, 0.2]],
-      [[0, 0.3], [2, 0.2], [4, 0.5]],
-      [[0, 0.4], [1, 0.3], [2, 0.3]]
     ]
   },
-  // ---- Tier 3: hardcore (160+ BPM) — mechanical assault, seeded chaos ----
+  // ---- Tier 3: hardcore (160+ BPM) — seeded chaos, strobe finale ----
   {
     phrases: [
       {
-        name: "violent-pendulum",
-        energy: 0.75,
-        entry: [10, 5, 6, 1],
+        // The tier's base groove (legacy block 0). Kept below the peak gate
+        // (0.8) so the tier-3 gated pool is never empty in low-energy
+        // windows — with every other phrase peak-gated, a pool containing
+        // only jackhammer could dead-end into the random fallback and play
+        // a wild phrase at groove energy.
+        name: "slam",
+        energy: 0.7,
         pose(b, c) {
-          const r = (b % 2 === 0 ? 1 : -1) * c.lead * 20;
-          return hit(r, r * 0.5, 6 + dip(c.isDown, 8), c.isDown ? 1.04 : 0.97, 0.1, 0.8, c.isDown ? 5 : 0);
-        }
-      },
-      {
-        name: "servo-stutter",
-        energy: 1,
-        entry: [0, 0, 5, 1.03],
-        pose(b, c) {
-          const r = (Math.floor(c.rnd() * 5) - 2) * 9;
           return hit(
-            r,
-            r * 0.4,
-            5 + dip(c.isDown, 6),
-            c.isDown ? 1.05 : 0.96,
-            c.quad ? 0.5 : 0.1,
-            0.5,
+            0,
+            0,
+            c.isDown ? 20 : -10,
+            c.isDown ? 1.08 : 0.95,
+            c.quad ? 0.4 : 0,
+            0.8,
             c.isDown ? 5 : 0,
-            c.isDown ? [(c.rnd() - 0.5) * 9, (c.rnd() - 0.5) * 7] : null
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
           );
         }
       },
       {
-        name: "loom-assault",
-        energy: 0.95,
-        entry: [0, 0, 8, 1.05],
+        name: "chaos",
+        energy: 1,
+        // Legacy Math.random jerks -> seeded c.rnd() (determinism contract).
+        // tx is drawn independently of r — the tier-3 "independent lateral"
+        // phrase (tier 3 keeps its as-rendered vertical pump below instead of
+        // a pure sway; chaos already owns the lateral texture).
+        pose(b, c) {
+          return hit(
+            (c.rnd() - 0.5) * 30,
+            (c.rnd() - 0.5) * 15,
+            (c.rnd() - 0.5) * 15,
+            1,
+            c.quad ? 0.4 : 0,
+            0.5,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
+        }
+      },
+      {
+        name: "whip",
+        energy: 0.9,
+        pose(b, c) {
+          return hit(
+            c.isDown ? 18 : -18,
+            c.isDown ? 10 : -10,
+            12,
+            1,
+            c.quad ? 0.4 : 0,
+            0.8,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
+        }
+      },
+      {
+        name: "glitch",
+        energy: 1,
         halo: 0.8,
         pose(b, c) {
           return hit(
-            0,
-            0,
-            8 + dip(c.isDown, 9),
-            c.isDown ? 1.09 : 0.95,
-            0,
-            c.isDown ? 0.4 : 0.7,
-            c.isDown ? 5 : 0
+            c.isDown ? 10 : -10,
+            (c.rnd() - 0.5) * 20,
+            15,
+            1.1,
+            c.quad ? 0.4 : 0,
+            0.8,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
           );
         }
       },
       {
-        name: "stomp-cycle",
+        name: "assault",
         energy: 1,
-        entry: [8, 4, 10, 1.04],
         pose(b, c) {
-          const r = side2(b, c.lead) * 13;
-          return hit(r, r * 0.5, 10 + dip(c.isDown, 11), c.isDown ? 1.07 : 0.96, 0.05, 0.8, c.isDown ? 5 : 0);
+          return hit(
+            c.isDown ? 25 : -25,
+            c.isDown ? 15 : -15,
+            c.isDown ? 15 : -15,
+            1,
+            c.quad ? 0.4 : 0,
+            0.8,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
         }
       },
       {
-        name: "hardcore-release",
-        energy: 0.5,
-        entry: [5, 2, 4, 1],
+        name: "jackhammer",
+        energy: 0.8,
         pose(b, c) {
-          const r = side2(b, c.lead) * 8 * (1 - b / 20);
-          return flow(r, r * 0.5, 4 + dip(c.isDown, 4), 1, 0.35, 1.4, c.isDown ? 2 : 0);
+          return hit(
+            0,
+            0,
+            c.isDown ? 12 : 2,
+            1,
+            c.quad ? 0.4 : 0,
+            0.3,
+            c.isDown ? 4 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
+        }
+      },
+      {
+        name: "pump",
+        energy: 0.9,
+        // ADAPTED (as-rendered): legacy ty = cos(phase*PI/2)*15+5 sampled at
+        // integer beats is the period-4 sequence [20, 5, -10, 5]; the
+        // authored r/tx sines (sin(phase*PI)) are identically 0 at integer
+        // beats, so the block RENDERED as a pure vertical pump. Ported
+        // as-rendered — tier 3's lateral texture comes from chaos/glitch.
+        pose(b, c) {
+          return hit(
+            0,
+            0,
+            [20, 5, -10, 5][c.m4],
+            1,
+            c.quad ? 0.4 : 0,
+            0.8,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
+        }
+      },
+      {
+        name: "strobe-slam",
+        energy: 1,
+        halo: 0.8,
+        strobe: true,
+        // Legacy finale, verbatim: same pose held across the bar, snapped on
+        // the m4===0 downbeat (0.1 beats) and recovered long (1.5 beats);
+        // #eye-center strobes red/white every beat (dance.js).
+        pose(b, c) {
+          return hit(
+            15,
+            0,
+            10,
+            1.1,
+            c.quad ? 0.4 : 0,
+            c.m4 === 0 ? 0.1 : 1.5,
+            c.isDown ? 5 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 30, (c.rnd() - 0.5) * 30] : null
+          );
         }
       }
-    ],
-    edges: [
-      [[1, 0.3], [2, 0.2], [3, 0.3], [4, 0.2]],
-      [[0, 0.25], [2, 0.3], [3, 0.25], [4, 0.2]],
-      [[0, 0.2], [1, 0.25], [3, 0.35], [4, 0.2]],
-      [[0, 0.35], [1, 0.25], [4, 0.4]],
-      [[0, 0.35], [2, 0.3], [3, 0.35]]
     ]
   }
 ];
 var PEAK_GATE = 0.8;
 var PEAK_MARGIN = 0.3;
-function pickNextPhrase(tierIdx, currentId, nextWindowEnergy, phraseCount) {
+function pickNextPhrase(tierIdx, currentId, switchEnergy, phraseCount) {
   const tier = TIERS[tierIdx];
-  const edges = tier.edges[currentId] || [];
-  const eligible = edges.filter(([to]) => {
-    const p = tier.phrases[to];
-    return p.energy <= PEAK_GATE || nextWindowEnergy >= p.energy - PEAK_MARGIN;
-  });
-  const pool = eligible.length > 0 ? eligible : edges;
+  const n = tier.phrases.length;
+  const gated = [];
+  const all = [];
+  for (let i = 0; i < n; i++) {
+    if (i === currentId) continue;
+    all.push(i);
+    const p = tier.phrases[i];
+    if (p.energy <= PEAK_GATE || switchEnergy >= p.energy - PEAK_MARGIN) gated.push(i);
+  }
+  const pool = gated.length > 0 ? gated : all;
   const rnd = mulberry32(hash32(
     Math.imul(phraseCount + 1, 2654435761) ^ Math.imul(tierIdx + 1, 2246822519) ^ Math.imul(currentId + 1, 3266489917)
   ));
-  let roll = rnd() * pool.reduce((s, e) => s + e[1], 0);
-  for (const [to, w] of pool) {
-    roll -= w;
-    if (roll <= 0) return to;
-  }
-  return pool[pool.length - 1][0];
+  return pool[Math.floor(rnd() * pool.length) % pool.length];
 }
 function phraseVariant(tierIdx, phraseId, phraseCount) {
   const rnd = mulberry32(hash32(
@@ -1466,47 +1761,44 @@ function phraseVariant(tierIdx, phraseId, phraseCount) {
   ));
   return { lead: rnd() < 0.5 ? 1 : -1, jitter: 0.9 + rnd() * 0.2 };
 }
-function getPhraseEntry(tierIdx, phraseId) {
-  return TIERS[tierIdx].phrases[phraseId].entry;
-}
-function getBeatPose(tierIdx, phraseId, b, variant, energy, nextEntry) {
+function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
   const phrase = TIERS[tierIdx].phrases[phraseId];
   const isDown = b % 2 === 0;
   const rnd = mulberry32(hash32(
     Math.imul(phraseId + 1, 7919) ^ Math.imul(b + 1, 104729) ^ Math.imul(tierIdx + 1, 7)
   ));
-  const raw = phrase.pose(b, { isDown, quad: b % 4 === 0, m4: b % 4, m8: b % 8, lead: variant.lead, rnd });
-  const establish = tierIdx >= 2 || b >= 4 ? 1 : 0.7 + 0.1 * b;
-  const k = establish * (0.95 + 0.15 * energy) * variant.jitter;
-  let r = raw.r * k;
-  let tx = raw.tx * k;
-  let ty = raw.ty * k;
-  let s = 1 + (raw.s - 1) * k;
-  const pump = raw.pump * k;
-  let lid = raw.lid;
-  let outFlow = raw.flow;
-  let durBeats = raw.durBeats;
-  if (nextEntry && b >= 13) {
-    const w = (b - 12) / 3;
-    r += (nextEntry[0] - r) * w;
-    tx += (nextEntry[1] - tx) * w;
-    ty += (nextEntry[2] - ty) * w;
-    s += (nextEntry[3] - s) * w;
-    outFlow = true;
-    durBeats = 1.6;
-    lid = Math.max(lid, 0.2);
+  const raw = phrase.pose(b, {
+    isDown,
+    quad: b % 4 === 0,
+    m4: b % 4,
+    m8: b % 8,
+    lead: variant.lead,
+    global: globalBeat,
+    rnd
+  });
+  const k = variant.jitter;
+  const dartMax = DART_MAX[tierIdx];
+  let dart = raw.dart;
+  if (dart) {
+    const len = Math.hypot(dart[0], dart[1]);
+    if (len > dartMax) {
+      const f = dartMax / len;
+      dart = [dart[0] * f, dart[1] * f];
+    }
   }
   return {
-    r,
-    tx,
-    ty,
-    s,
-    lid,
-    pump,
-    flow: outFlow,
-    durBeats,
-    dart: raw.dart,
-    halo: phrase.halo
+    r: raw.r * k,
+    tx: raw.tx * k,
+    ty: raw.ty * k,
+    s: 1 + (raw.s - 1) * k,
+    lid: raw.lid,
+    pump: raw.pump * k,
+    flow: raw.flow,
+    flowBlend: raw.flow ? 1 : 0,
+    durBeats: raw.durBeats,
+    dart,
+    halo: phrase.halo,
+    strobe: phrase.strobe === true
   };
 }
 
@@ -1514,7 +1806,7 @@ function getBeatPose(tierIdx, phraseId, b, variant, energy, nextEntry) {
 var DANCE_EASINGS = {
   hitDown: "cubic-bezier(0.34, 1.4, 0.64, 1)",
   hitOff: "cubic-bezier(0.2, 0.9, 0.3, 1)",
-  flow: "ease-in-out"
+  flow: "cubic-bezier(0.42, 0, 0.58, 1)"
 };
 var HIT_DOWN_EASE = DANCE_EASINGS.hitDown;
 var HIT_OFF_EASE = DANCE_EASINGS.hitOff;
@@ -1523,18 +1815,28 @@ function startDanceCycle(card, bpm) {
   const a = card.animator;
   stopDanceCycle(card);
   let dancePhase = 0;
-  const currentBpm = Math.max(60, Math.min(200, bpm));
-  const beatMs = 60 / currentBpm * 1e3;
-  const beatSec = beatMs / 1e3;
+  let currentBpm = Math.max(60, Math.min(200, bpm));
+  let beatMs = 60 / currentBpm * 1e3;
+  let beatSec = beatMs / 1e3;
   let expectedNextTick = performance.now() + beatMs;
-  const tierIdx = currentBpm < 90 ? 0 : currentBpm < 125 ? 1 : currentBpm < 160 ? 2 : 3;
+  const tierIdx = tierForBpm(currentBpm);
   const eyeHitScale = [1.06, 1.1, 1.18, 1.25][tierIdx];
+  card._retuneDance = (newBpm) => {
+    const nb = Math.max(60, Math.min(200, newBpm));
+    if (tierForBpm(nb) !== tierIdx) return false;
+    if (nb === currentBpm) return true;
+    currentBpm = nb;
+    beatMs = 60 / nb * 1e3;
+    beatSec = beatMs / 1e3;
+    expectedNextTick = performance.now() + beatMs;
+    return true;
+  };
   let phraseId = 0;
   let phraseCount = 0;
   let variant = phraseVariant(tierIdx, phraseId, phraseCount);
-  let nextPhraseId = null;
   let lastLedOpacity = null;
   let lastHalo = null;
+  let lastStrobeFill = null;
   const step = () => {
     if (card._state !== "dancing") return;
     const executeTick = () => {
@@ -1553,19 +1855,13 @@ function startDanceCycle(card, bpm) {
       return;
     }
     const b = dancePhase % 16;
-    if (b === 0 && dancePhase > 0 && nextPhraseId !== null) {
-      phraseId = nextPhraseId;
+    if (b === 0 && dancePhase > 0) {
+      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase), phraseCount);
       phraseCount++;
       variant = phraseVariant(tierIdx, phraseId, phraseCount);
-      nextPhraseId = null;
     }
     const isDownBeat = b % 2 === 0;
-    const energy = getEnergy(dancePhase);
-    if (b === 12 && nextPhraseId === null) {
-      nextPhraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase + 16), phraseCount);
-    }
-    const nextEntry = nextPhraseId !== null && b >= 13 ? getPhraseEntry(tierIdx, nextPhraseId) : null;
-    const move = getBeatPose(tierIdx, phraseId, b, variant, energy, nextEntry);
+    const move = getBeatPose(tierIdx, phraseId, b, variant, dancePhase);
     if (lastLedOpacity !== "1") {
       a.setLEDs("#1DB954", "1");
       lastLedOpacity = "1";
@@ -1574,6 +1870,16 @@ function startDanceCycle(card, bpm) {
     if (lastHalo !== halo) {
       a.el.eyeHalo.style.opacity = halo;
       lastHalo = halo;
+    }
+    if (move.strobe) {
+      const fill = isDownBeat ? "#ff0000" : "#ffffff";
+      if (lastStrobeFill !== fill) {
+        a.el.eyeCenter.setAttribute("fill", fill);
+        lastStrobeFill = fill;
+      }
+    } else if (lastStrobeFill !== null && lastStrobeFill !== "#ffffff") {
+      a.el.eyeCenter.setAttribute("fill", "#ffffff");
+      lastStrobeFill = "#ffffff";
     }
     a.el.eyeCenter.style.transform = `scale(${eyeHitScale})`;
     a.setBellows(move.pump, 0.12);
@@ -1590,17 +1896,14 @@ function startDanceCycle(card, bpm) {
       }
     }, beatMs * 0.3);
     if (tierIdx === 1) {
+      const sr = mulberryFrom(hash32(dancePhase + 1));
       a.setTimeout("dance-sync", () => {
         if (card._state !== "dancing") return;
-        a.setPupil((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 3);
+        a.setPupil((sr() - 0.5) * 4, (sr() - 0.5) * 3);
       }, beatMs * 0.5);
     }
-    let moveDur = move.durBeats * beatSec;
-    if (move.flow) {
-      moveDur = Math.min(moveDur, beatSec * 1.9);
-    } else {
-      moveDur = Math.min(moveDur, beatSec * 0.95);
-    }
+    const maxBeats = move.flow ? FLOW_CLAMP_BEATS : HIT_CLAMP_BEATS;
+    let moveDur = Math.min(move.durBeats * beatSec, beatSec * maxBeats);
     const ease = move.flow ? FLOW_EASE : isDownBeat ? HIT_DOWN_EASE : HIT_OFF_EASE;
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
@@ -1611,11 +1914,27 @@ function startDanceCycle(card, bpm) {
   };
   step();
 }
+function mulberryFrom(seed) {
+  let s = seed >>> 0;
+  return function() {
+    s = s + 1831565813 | 0;
+    let t = Math.imul(s ^ s >>> 15, 1 | s);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+var HIT_CLAMP_BEATS = 2;
+var FLOW_CLAMP_BEATS = 1.9;
+function tierForBpm(bpm) {
+  return bpm < 90 ? 0 : bpm < 125 ? 1 : bpm < 160 ? 2 : 3;
+}
 function stopDanceCycle(card) {
   const a = card.animator;
   a.clearTimeout("dance-step");
   a.clearTimeout("dance-led");
   a.clearTimeout("dance-sync");
+  delete card._retuneDance;
+  if (a.el.eyeCenter) a.el.eyeCenter.setAttribute("fill", "#ffffff");
   a.setBellows(0, 0.3);
 }
 
@@ -1760,6 +2079,7 @@ function bopHead(card) {
   card._bopping = true;
   let lastTime = performance.now();
   let lastLedUpdate = 0;
+  let lastWrittenTransform = "";
   a.cancelRaf("bop-raf");
   card._bopMaxSeen = 0;
   card._bopPeakFrozen = false;
@@ -1784,8 +2104,12 @@ function bopHead(card) {
     const rot = spring.position * 0.15;
     const scale = 1 - Math.abs(spring.position) * 3e-3;
     if (a.el.headBop) {
-      a.el.headBop.style.transition = "none";
-      a.el.headBop.style.transform = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
+      const t = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
+      if (t !== lastWrittenTransform) {
+        a.el.headBop.style.transition = "none";
+        a.el.headBop.style.transform = t;
+        lastWrittenTransform = t;
+      }
     }
     if (!card._bopPeakFrozen) {
       if (Math.abs(spring.position) > card._bopMaxSeen) {
@@ -1808,8 +2132,7 @@ function bopHead(card) {
       const normPos = Math.min(1, Math.abs(spring.position) / maxAmp);
       const baseOp = parseFloat(savedLedOpacity) || 0.15;
       const ledOp = baseOp + (1 - baseOp) * normPos;
-      a.el.svg.style.setProperty("--led-color", savedLedColor);
-      a.el.svg.style.setProperty("--led-opacity", ledOp.toFixed(2));
+      a.setLedVars(savedLedColor, ledOp.toFixed(2));
     }
     a.requestRaf("bop-raf", animate);
   };
@@ -1982,9 +2305,13 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassBpm = newBpmState;
     const currentBpm = parseBpm(newBpmState);
     const mapped = resolveState(newVoiceState, newMediaState);
-    if (this._state !== mapped || mapped === "dancing" && this._currentBpm !== currentBpm) {
+    if (this._state !== mapped) {
       this._currentBpm = currentBpm;
       applyState(this, mapped, currentBpm);
+    } else if (mapped === "dancing" && this._currentBpm !== currentBpm) {
+      this._currentBpm = currentBpm;
+      const retuned = typeof this._retuneDance === "function" && this._retuneDance(currentBpm);
+      if (!retuned) applyState(this, mapped, currentBpm);
     }
   }
   getCardSize() {
@@ -2349,6 +2676,37 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
       card._tapHandler?.(e); // trigger the tap-bop without a real click
     }
   });
+
+  // ============================================================
+  // FPS meter — lives OUTSIDE the card's shadow DOM and only reads
+  // rAF timing, so it never affects the card. EMA-smoothed frame
+  // delta + worst frame in a 500 ms window.
+  // ============================================================
+  const fpsOut = document.getElementById('fps-out');
+  let last = performance.now(), ema = 16.7, worst = 0, win = 0;
+  function fpsLoop(now) {
+    const dt = now - last; last = now;
+    if (dt > 0 && dt < 1000) { ema = ema * 0.9 + dt * 0.1; worst = Math.max(worst, dt); }
+    win += dt;
+    if (win >= 500) { fpsOut.textContent = (1000/ema).toFixed(0) + " fps · worst " + worst.toFixed(0) + " ms"; win = 0; worst = 0; }
+    requestAnimationFrame(fpsLoop);
+  }
+  requestAnimationFrame(fpsLoop);
+
+  // Long-task observer (Chromium-only) — feature-detected so unsupported
+  // browsers just skip it. Logs main-thread jank > 50 ms for profiling.
+  try {
+    if (typeof PerformanceObserver !== 'undefined') {
+      const po = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          console.debug('longtask:', entry.duration.toFixed(0) + ' ms', entry.name);
+        }
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    }
+  } catch (err) {
+    // longtask unsupported (Firefox/Safari) — silently ignore.
+  }
 </script>
 
 </body>

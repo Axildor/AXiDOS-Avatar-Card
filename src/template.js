@@ -34,13 +34,18 @@ export function buildTemplate(config) {
          browser hoists it to its own GPU layer: per-frame transform writes
          (RAF spring loop, CSS transitions) then composite on the GPU instead
          of triggering main-thread SVG repaints. Applied ONLY to groups that
-         actually animate — each hint costs GPU memory. */
+         actually animate — each hint costs GPU memory. Includes the ambient
+         sway pivots (#body-pivot, #head-sway-pivot): their infinite CSS
+         keyframe rotations repaint the whole subtree every frame unless
+         promoted. */
       #axidos-head, #head-bop, #torso-swivel, #bellows,
-      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center {
+      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center,
+      #body-pivot, #head-sway-pivot {
         will-change: transform;
       }
       /* Rotation/scale groups need view-box coordinates for transform-origin. */
-      #axidos-head, #head-bop, #torso-swivel, #eye-center { transform-box: view-box; }
+      #axidos-head, #head-bop, #torso-swivel, #eye-center,
+      #body-pivot, #head-sway-pivot { transform-box: view-box; }
       /* Bop layer: dedicated transform group for the tap-bop spring so it
          composes additively with the head poses (#axidos-head) instead of
          fighting over one transform. Pivots at the neck like #axidos-head. */
@@ -85,14 +90,13 @@ export function buildTemplate(config) {
           <radialGradient id="eyeGradProcess" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffddaa"/><stop offset="60%" stop-color="#ff6600"/><stop offset="85%" stop-color="#aa3300"/><stop offset="100%" stop-color="#220a00"/></radialGradient>
           <radialGradient id="eyeGradRespond" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffaaaa"/><stop offset="60%" stop-color="#ff2200"/><stop offset="85%" stop-color="#aa0000"/><stop offset="100%" stop-color="#220000"/></radialGradient>
           <radialGradient id="eyeGradDance" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#aaffaa"/><stop offset="55%" stop-color="#1DB954"/><stop offset="80%" stop-color="#0a5926"/><stop offset="100%" stop-color="#001a00"/></radialGradient>
-          <!-- softGlow is kept ONLY for the static faceplate inset (never
-               animates, rasterized once). Moving elements must NOT use SVG
-               filters: feGaussianBlur re-rasterizes on every transform write
-               and defeats compositor-layer promotion on Android WebView. -->
-          <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <!-- No SVG filters remain: feGaussianBlur re-rasterizes on every
+               transform write and defeats compositor-layer promotion on
+               Android WebView. The faceplate inset's soft fringe is faked
+               with stepped rects (see Group_Faceplate_Inset); the eye glow
+               uses the pre-blurred radial gradient below. -->
           <!-- Fake glow: pre-blurred radial gradient, rasterized once and
-               cached as a texture. Replaces filter: url(#softGlow) on the
-               eye layers + indicator dot. -->
+               cached as a texture. Used on the eye layers + indicator dot. -->
           <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
             <stop offset="45%" stop-color="#ffffff" stop-opacity="0.35"/>
@@ -108,6 +112,12 @@ export function buildTemplate(config) {
           <clipPath id="cavityClip"><rect x="97" y="283.25" width="66" height="161.5" rx="33"/></clipPath>
           <clipPath id="trackClip"><rect x="107" y="293.25" width="46" height="141.5" rx="23"/></clipPath>
           <clipPath id="eyeballClip"><circle cx="130" cy="364" r="25.5"/></clipPath>
+          <!-- socketClip: hard geometric bound for the pupil. The iris
+               (r=17.6) sits inside the socket face (r=23), leaving only a
+               5.4 px translation budget — dance darts can request more.
+               Applied to a STATIC wrapper group (not #eye-pupil itself) so
+               the clip does not translate with the pupil it clips. -->
+          <clipPath id="socketClip"><circle cx="130" cy="364" r="23"/></clipPath>
         </defs>
         <g id="body-pivot">
           <g id="torso-swivel">
@@ -164,7 +174,13 @@ export function buildTemplate(config) {
                 <rect x="75" y="232" width="130" height="247" rx="60" fill="url(#ceramicShadow)"/>
               </g>
               <g id="Group_Faceplate_Inset">
-                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6" filter="url(#softGlow)"/>
+                <!-- Stepped fake of the old 2px blur filter: two expanded
+                     black rects beneath the base rect approximate the blur's
+                     soft dark fringe without an SVG filter (zero re-raster
+                     cost). Static — rasterized once. -->
+                <rect x="91" y="277.25" width="80" height="175.5" rx="40" fill="#000" opacity="0.12"/>
+                <rect x="92" y="278.25" width="78" height="173.5" rx="39" fill="#000" opacity="0.30"/>
+                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6"/>
                 <rect x="91" y="277.25" width="78" height="173.5" rx="39" fill="url(#bezelGrad)" stroke="#1a1c22" stroke-width="1"/>
                 <rect x="93" y="279.25" width="74" height="169.5" rx="37" fill="none" stroke="#6a6d75" stroke-width="1.5"/>
                 <g clip-path="url(#cavityClip)">
@@ -184,7 +200,11 @@ export function buildTemplate(config) {
                     <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
                     <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
                     <circle id="eye-halo" cx="130" cy="364" r="25" fill="url(#haloGradIdle)" opacity=".05"/>
-                    <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
+                    <!-- Static clip wrapper: socketClip must live on a PARENT
+                         of #eye-pupil — a clip on the pupil itself would
+                         translate along with it and clip nothing. -->
+                    <g clip-path="url(#socketClip)">
+                      <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
                       <!-- Pre-blurred glow halo (rasterized once) replaces the
                            per-frame feGaussianBlur that used to sit on each
                            eye layer — visually equivalent soft edge, zero
@@ -197,6 +217,7 @@ export function buildTemplate(config) {
                       <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
                       <circle id="eye-center" cx="130" cy="364" r="6.6" fill="#ffe855" />
                       <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
+                      </g>
                     </g>
                     <g clip-path="url(#eyeballClip)">
                       <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>

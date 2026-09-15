@@ -131,6 +131,11 @@ export function bopHead(card) {
 
   let lastTime = performance.now();
   let lastLedUpdate = 0;
+  // Dedupe guard for the per-frame transform write: the spring still steps
+  // every frame, but the style write is skipped when the rounded transform
+  // string is unchanged (sub-pixel frames at high refresh rates). Purely a
+  // write optimization — the simulation itself is untouched.
+  let lastWrittenTransform = "";
   a.cancelRaf('bop-raf');
   // The meld threshold is a fraction of the ACTUAL peak, not the theoretical
   // maxAmp — the velocity seed overshoots maxAmp by ~1.8x, so a maxAmp-based
@@ -173,8 +178,12 @@ export function bopHead(card) {
     const rot = spring.position * 0.15;
     const scale = 1.0 - Math.abs(spring.position) * 0.003;
     if (a.el.headBop) {
-      a.el.headBop.style.transition = 'none';
-      a.el.headBop.style.transform = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
+      const t = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
+      if (t !== lastWrittenTransform) {
+        a.el.headBop.style.transition = 'none';
+        a.el.headBop.style.transform = t;
+        lastWrittenTransform = t;
+      }
     }
 
     // Track the actual peak while the spring is rising. Once the velocity
@@ -215,8 +224,7 @@ export function bopHead(card) {
       const normPos = Math.min(1, Math.abs(spring.position) / maxAmp);
       const baseOp = parseFloat(savedLedOpacity) || 0.15;
       const ledOp = baseOp + (1 - baseOp) * normPos;
-      a.el.svg.style.setProperty('--led-color', savedLedColor);
-      a.el.svg.style.setProperty('--led-opacity', ledOp.toFixed(2));
+      a.setLedVars(savedLedColor, ledOp.toFixed(2));
     }
 
     a.requestRaf('bop-raf', animate);

@@ -32,8 +32,12 @@ jobs:
       - name: Verify dance smoothness
         run: node scripts/verify_dance_smoothness.mjs
 
+      - name: Extract changenotes from CHANGELOG.md
+        run: |
+          awk '/^## /{if(found) exit; found=1} found' CHANGELOG.md > release_notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release_notes.md
           files: axidos-card.js

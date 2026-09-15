@@ -71,9 +71,18 @@ export class AxidosCard extends HTMLElement {
     const currentBpm = parseBpm(newBpmState);
     const mapped = resolveState(newVoiceState, newMediaState);
 
-    if (this._state !== mapped || (mapped === 'dancing' && this._currentBpm !== currentBpm)) {
+    if (this._state !== mapped) {
       this._currentBpm = currentBpm;
       applyState(this, mapped, currentBpm);
+    } else if (mapped === 'dancing' && this._currentBpm !== currentBpm) {
+      // BPM hysteresis: a same-tier BPM change retunes the beat clock IN
+      // PLACE (dancePhase/phraseId/phraseCount preserved — no visible
+      // restart, so sensor jitter cannot flicker the choreography). A
+      // cross-tier change (crossing 90/125/160 BPM) swaps the phrase
+      // library, which requires a full restart.
+      this._currentBpm = currentBpm;
+      const retuned = typeof this._retuneDance === 'function' && this._retuneDance(currentBpm);
+      if (!retuned) applyState(this, mapped, currentBpm);
     }
   }
 

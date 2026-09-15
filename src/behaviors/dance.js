@@ -3,31 +3,25 @@
  * CSS-transition execution).
  *
  * Choreography (what pose on which beat) lives in behaviors/choreography.js:
- * 16-beat phrases with establish/develop/resolve arcs, a per-tier transition
- * graph, a 64-beat energy arc, seeded determinism, and the GLaDOS physical
- * laws (gravity dip, pendulum coupling, torso lag, on-beat reversals,
- * personality lids). This module only EXECUTES that choreography.
+ * a DIRECT PORT of the legacy card's 32 hand-written blocks (8 per tier),
+ * selected uniformly with no immediate repeat and gated by the energy
+ * envelope. This module only EXECUTES that choreography.
  *
  * EXECUTION MODEL — declarative CSS transitions (the legacy card's model):
  * every beat computes its pose from the phrase engine and issues ONE
  * setHead() write (transition + transform). The browser compositor
  * interpolates the move even when the main thread janks, which is what kept
  * the legacy card smooth on Android WebView (Tab S6 Lite) at high BPM. There
- * is deliberately NO per-frame JS in the dance path:
+ * is deliberately NO per-frame JS in the dance path.
  *
- *  - No WAAPI keyframes: the old per-beat cancel/create churn, cancel-snap
- *    freeze, and getComputedStyle() live-pose reseeds are gone. CSS
- *    transitions retarget smoothly from the head's CURRENT pose by design,
- *    which eliminates the entire mid-flight-snap problem class.
- *  - No groove spring: a continuous RAF-driven bob is phase-shifted from the
- *    beat and never lands on it — it fought the choreography's PRECISION law
- *    (deliberate, on-beat reversals) and cost a per-frame main-thread loop.
- *    The organic feel comes from the choreography itself: GRAVITY dips,
- *    bellows compression, and FLOW glides.
+ *  - Phrase changes are HARD CUTS at the bar boundary (the legacy model):
+ *    the cut itself reads as "new move". No establish ramp, no resolve
+ *    pre-blend, no character crossfade — the next beat's CSS transition
+ *    retargets from the head's CURRENT pose, which is snap-free by design.
  *  - Move styles map to easing + duration:
- *      · HIT moves: short duration (<= 0.95x beat) so they finish before the
- *        next beat; downbeats use an overshoot curve (windup->snap->settle
- *        character in a single easing), offbeats a snappy ease-out.
+ *      · HIT moves: clamped at 2.0x beat — punch-and-recover textures (the
+ *        legacy 0.1-beat downbeat snap vs 1.5-beat recover) survive intact;
+ *        downbeats use an overshoot curve, offbeats a snappy ease-out.
  *      · FLOW moves: long duration (up to 1.9x beat) with ease-in-out —
  *        continuous travel; the next beat's transition retargets from the
  *        live pose with no snap.
@@ -41,19 +35,18 @@
  */
 
 import {
-  getEnergy, pickNextPhrase, phraseVariant, getPhraseEntry, getBeatPose,
+  getEnergy, pickNextPhrase, phraseVariant, getBeatPose, hash32,
 } from './choreography.js';
 
 // Easing vocabulary (single-write move character):
-//  - Downbeat HIT: overshoot curve — eases past the target then settles,
-//    approximating the old windup->hit->settle keyframe shape.
+//  - Downbeat HIT: overshoot curve — eases past the target then settles.
 //  - Offbeat HIT: fast attack, soft landing.
 //  - FLOW: plain ease-in-out glide.
 // Exported for the verify script's easing-contract assertions.
 export const DANCE_EASINGS = {
   hitDown: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
   hitOff: 'cubic-bezier(0.2, 0.9, 0.3, 1)',
-  flow: 'ease-in-out',
+  flow: 'cubic-bezier(0.42, 0, 0.58, 1)',
 };
 const HIT_DOWN_EASE = DANCE_EASINGS.hitDown;
 const HIT_OFF_EASE = DANCE_EASINGS.hitOff;
@@ -64,26 +57,45 @@ export function startDanceCycle(card, bpm) {
   stopDanceCycle(card);
 
   let dancePhase = 0;
-  const currentBpm = Math.max(60, Math.min(200, bpm));
-  const beatMs = (60 / currentBpm) * 1000;
-  const beatSec = beatMs / 1000;
+  let currentBpm = Math.max(60, Math.min(200, bpm));
+  let beatMs = (60 / currentBpm) * 1000;
+  let beatSec = beatMs / 1000;
   let expectedNextTick = performance.now() + beatMs;
 
-  const tierIdx = currentBpm < 90 ? 0 : currentBpm < 125 ? 1 : currentBpm < 160 ? 2 : 3;
+  const tierIdx = tierForBpm(currentBpm);
   const eyeHitScale = [1.06, 1.1, 1.18, 1.25][tierIdx];   // tier-scaled eye pulse
 
+  // ---- In-place BPM retune (hysteresis against sensor jitter) ----
+  // A same-tier BPM change retunes the beat clock WITHOUT resetting
+  // dancePhase/phraseId/phraseCount — the choreography continues seamlessly
+  // at the new tempo. Cross-tier changes return false: the phrase library
+  // itself differs, so the caller must do a full restart.
+  card._retuneDance = (newBpm) => {
+    const nb = Math.max(60, Math.min(200, newBpm));
+    if (tierForBpm(nb) !== tierIdx) return false;
+    if (nb === currentBpm) return true;
+    currentBpm = nb;
+    beatMs = (60 / nb) * 1000;
+    beatSec = beatMs / 1000;
+    // Re-anchor the next tick from now: the beat INTERVAL changes, the
+    // phase (dancePhase count) does not — no visual discontinuity.
+    expectedNextTick = performance.now() + beatMs;
+    return true;
+  };
+
   // ---- Phrase driver state ----
-  // The dance always opens on phrase 0 (the tier's base groove move) — a
-  // musical establish — then walks the transition graph from there.
+  // The dance always opens on phrase 0 (the tier's base groove move), then
+  // switches at every bar boundary (hard cut, legacy model).
   let phraseId = 0;
   let phraseCount = 0;
   let variant = phraseVariant(tierIdx, phraseId, phraseCount);
-  let nextPhraseId = null; // picked at beat 12 so beats 13-15 can resolve
 
   // Redundant-write guards: the LED color never changes during a dance and
-  // the halo only changes on peak phrases — skip identical style writes.
+  // the halo/strobe only change on specific phrases/beats — skip identical
+  // style writes.
   let lastLedOpacity = null;
   let lastHalo = null;
+  let lastStrobeFill = null;
 
   const step = () => {
     if (card._state !== 'dancing') return;
@@ -105,40 +117,40 @@ export function startDanceCycle(card, bpm) {
 
     const b = dancePhase % 16; // beat within the phrase
 
-    // Phrase rotation every 16 beats: walk the transition graph. The next
-    // phrase was already picked at beat 12 (so beats 13-15 resolved toward
-    // its entry pose) — here we just step into it.
-    if (b === 0 && dancePhase > 0 && nextPhraseId !== null) {
-      phraseId = nextPhraseId;
+    // Phrase rotation every 16 beats: HARD CUT into the next phrase (the
+    // legacy model — the cut itself reads as "new move"). The next phrase is
+    // picked HERE, at the switch, gated by the switch-time energy (no
+    // lookahead): peak phrases only enter high-energy windows.
+    if (b === 0 && dancePhase > 0) {
+      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase), phraseCount);
       phraseCount++;
       variant = phraseVariant(tierIdx, phraseId, phraseCount);
-      nextPhraseId = null;
     }
 
     const isDownBeat = b % 2 === 0;
-    const energy = getEnergy(dancePhase);
-
-    // ---- Choreography: this beat's pose from the phrase engine ----
-    // At beat 12 the graph walker picks the NEXT phrase (energy-gated,
-    // seeded); beats 13-15 then resolve toward its entry pose.
-    if (b === 12 && nextPhraseId === null) {
-      nextPhraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase + 16), phraseCount);
-    }
-    const nextEntry = (nextPhraseId !== null && b >= 13)
-      ? getPhraseEntry(tierIdx, nextPhraseId) : null;
-    const move = getBeatPose(tierIdx, phraseId, b, variant, energy, nextEntry);
+    const move = getBeatPose(tierIdx, phraseId, b, variant, dancePhase);
 
     // LED/eye accents (redundant-write guarded — identical values are skipped).
     if (lastLedOpacity !== '1') { a.setLEDs('#1DB954', '1'); lastLedOpacity = '1'; }
     // Eye halo: peak phrases burn brighter (personality law).
     const halo = move.halo ? String(move.halo) : '0.5';
     if (lastHalo !== halo) { a.el.eyeHalo.style.opacity = halo; lastHalo = halo; }
+    // Strobe (wildest tier-3 phrase): #eye-center fill toggles EVERY beat —
+    // red on the downbeat, white on the off-beat (legacy red/white strobe).
+    // Non-strobe phrases hold the dance default white.
+    if (move.strobe) {
+      const fill = isDownBeat ? '#ff0000' : '#ffffff';
+      if (lastStrobeFill !== fill) { a.el.eyeCenter.setAttribute('fill', fill); lastStrobeFill = fill; }
+    } else if (lastStrobeFill !== null && lastStrobeFill !== '#ffffff') {
+      a.el.eyeCenter.setAttribute('fill', '#ffffff');
+      lastStrobeFill = '#ffffff';
+    }
     // Eye pulse: #eye-center carries a short CSS transform transition (see
     // template.js), so this write pulses the pupil organically instead of
     // snapping it open/closed every beat.
     a.el.eyeCenter.style.transform = `scale(${eyeHitScale})`;
     // Bellows pump: GRAVITY-COUPLED — the phrase compresses on the downbeat
-    // dip and releases (0) on the rise. No flat per-tier pump.
+    // dip and releases (0) on the rise.
     a.setBellows(move.pump, 0.12);
     a.setTimeout('dance-led', () => {
       if (card._state === 'dancing') {
@@ -153,24 +165,21 @@ export function startDanceCycle(card, bpm) {
     // Syncopation: half-beat "and" pupil accent for tier 1 only — at club/
     // hardcore tempos the pose hits already fill every beat, and an extra
     // half-beat timer per beat is main-thread work the tablet can't spare.
+    // Seeded from the global beat counter (no Math.random in the dance loop).
     if (tierIdx === 1) {
+      const sr = mulberryFrom(hash32(dancePhase + 1));
       a.setTimeout('dance-sync', () => {
         if (card._state !== 'dancing') return;
-        a.setPupil((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 3);
+        a.setPupil((sr() - 0.5) * 4, (sr() - 0.5) * 3);
       }, beatMs * 0.5);
     }
 
-    // Move-duration clamp: hit moves must finish before the next beat
-    // (<= 0.95x) so the head always lands on the beat and never freezes dead
-    // between beats. Flow moves are ALLOWED to outlive the beat (up to 1.9x)
-    // — continuous travel — and the next beat's transition simply retargets
-    // from wherever the head is (CSS transitions are snap-free by design).
-    let moveDur = move.durBeats * beatSec;
-    if (move.flow) {
-      moveDur = Math.min(moveDur, beatSec * 1.9);
-    } else {
-      moveDur = Math.min(moveDur, beatSec * 0.95);
-    }
+    // Move-duration clamp: hit beats may run up to 2.0x beat (punch-and-
+    // recover textures need the long recover), flow beats 1.9x. The next
+    // beat's transition retargets from wherever the head is (CSS transitions
+    // are snap-free by design).
+    const maxBeats = move.flow ? FLOW_CLAMP_BEATS : HIT_CLAMP_BEATS;
+    let moveDur = Math.min(move.durBeats * beatSec, beatSec * maxBeats);
 
     // THE move: one transition + one transform write. The compositor
     // interpolates off the main thread; retargeting mid-flight eases from
@@ -196,11 +205,37 @@ export function startDanceCycle(card, bpm) {
   step();
 }
 
+/** Tiny inline mulberry32 for the syncopation dart stream. */
+function mulberryFrom(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Duration clamps (in beats). HIT allows long recover beats (punch-and-
+ *  recover textures: 0.1-beat snap vs 1.5-beat recover); FLOW glides cap at
+ *  1.9x so a flow move always hands over before the phrase's second bar. */
+const HIT_CLAMP_BEATS = 2.0;
+const FLOW_CLAMP_BEATS = 1.9;
+
+/** Tempo tier for a BPM value — the phrase-library selector. */
+export function tierForBpm(bpm) {
+  return bpm < 90 ? 0 : bpm < 125 ? 1 : bpm < 160 ? 2 : 3;
+}
+
 export function stopDanceCycle(card) {
   const a = card.animator;
   a.clearTimeout('dance-step');
   a.clearTimeout('dance-led');
   a.clearTimeout('dance-sync');
+  delete card._retuneDance; // the in-place retune hook dies with the cycle
+  // Reset the strobe fill so a dance ending mid-strobe doesn't leave the
+  // pupil red (each state sets its own fill right after, but be explicit).
+  if (a.el.eyeCenter) a.el.eyeCenter.setAttribute('fill', '#ffffff');
   // CSS transitions complete on their own — there is no WAAPI animation to
   // cancel and no fill:forwards snap. The head glides to its last target and
   // the next state's setHead() retargets it from there.
