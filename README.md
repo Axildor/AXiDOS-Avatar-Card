@@ -90,6 +90,7 @@ tap_action:
 | `transparent_bg` | boolean | Optional | Removes the card background, shadow, and border. Default is `false`. |
 | `progress_entity` | string | Optional | The entity ID of a sensor whose state (0–100) drives the **progress ring** around the eye socket in idle mode. The ring starts at the bottom of the socket and fills clockwise; at 100% the entire socket is lit. Unavailable/unknown states hide the ring. |
 | `progress_ring_enabled` | boolean | Optional | Show the progress ring while idle. Default is `true`. Set to `false` to keep the plain idle look. |
+| `progress_vertical_fill` | boolean | Optional | Fills both sides of the ring from the bottom up — at 50% both sides stand at half height, at 100% the whole socket is lit. Default is `true`. Set to `false` for the original 360° clockwise sweep from the bottom. |
 | `progress_dynamic_color` | boolean | Optional | Colors the ring by position on the 0–100 scale: green at 0%, yellow mid-scale, red at 100%. Default is `false` (the ring uses the idle pupil's amber shade). |
 | `progress_invert_color` | boolean | Optional | Flips the dynamic color direction: red at 0%, green at 100%. Only applies when `progress_dynamic_color` is on. Default is `false`. |
 | `tap_enabled` | boolean | Optional | Enables the tap-to-bop interaction. Default is `true`. |

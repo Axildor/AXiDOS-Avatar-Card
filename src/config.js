@@ -19,6 +19,7 @@ export function getStubConfig() {
     zoom: 85,
     transparent_bg: false,
     progress_ring_enabled: true,
+    progress_vertical_fill: true,
     progress_dynamic_color: false,
     progress_invert_color: false,
     tap_enabled: true,
@@ -45,9 +46,10 @@ export function sanitizeConfig(config) {
   c.zoom = clampNum(c.zoom, 85, 10, 200);
   c.respond_delay = clampNum(c.respond_delay, 0, 0, 16);
   c.progress_entity = typeof c.progress_entity === 'string' ? c.progress_entity : '';
-  c.progress_ring_enabled = c.progress_ring_enabled !== false;
-  c.progress_dynamic_color = c.progress_dynamic_color === true;
-  c.progress_invert_color = c.progress_invert_color === true;
+ c.progress_ring_enabled = c.progress_ring_enabled !== false;
+ c.progress_vertical_fill = c.progress_vertical_fill !== false;
+ c.progress_dynamic_color = c.progress_dynamic_color === true;
+ c.progress_invert_color = c.progress_invert_color === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2.0);
   c.tap_intensity = clampNum(c.tap_intensity, 1.0, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));

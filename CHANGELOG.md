@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.4.1
+
+### Vertical Progress Ring Fill
+
+* **Vertical fill mode (default)** — the progress ring now fills both sides of the socket from the bottom up: at 50% both sides stand at exactly half height, at 100% the dashes meet at top-center and the whole socket is lit. The dash length is computed piecewise (cap arcs + straight sides) so the lit height is linear in the sensor percentage.
+* **360° sweep still available** — turning the new **Vertical Fill (Bottom-Up)** toggle off restores the original clockwise sweep from the bottom-center. Dynamic/invert color and the smooth 0.6s dash glide work identically in both modes.
+
 ## 5.4.0
 
 ### Idle Progress Ring

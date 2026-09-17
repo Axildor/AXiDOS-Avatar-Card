@@ -14,6 +14,7 @@ function getStubConfig() {
     zoom: 85,
     transparent_bg: false,
     progress_ring_enabled: true,
+    progress_vertical_fill: true,
     progress_dynamic_color: false,
     progress_invert_color: false,
     tap_enabled: true,
@@ -33,6 +34,7 @@ function sanitizeConfig(config) {
   c.respond_delay = clampNum(c.respond_delay, 0, 0, 16);
   c.progress_entity = typeof c.progress_entity === "string" ? c.progress_entity : "";
   c.progress_ring_enabled = c.progress_ring_enabled !== false;
+  c.progress_vertical_fill = c.progress_vertical_fill !== false;
   c.progress_dynamic_color = c.progress_dynamic_color === true;
   c.progress_invert_color = c.progress_invert_color === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
@@ -106,6 +108,11 @@ function buildEditorForm() {
           },
           {
             name: "progress_ring_enabled",
+            default: true,
+            selector: { boolean: {} }
+          },
+          {
+            name: "progress_vertical_fill",
             default: true,
             selector: { boolean: {} }
           },
@@ -185,6 +192,7 @@ function buildEditorForm() {
         bpm_entity: "BPM Sensor Entity",
         progress_entity: "Progress Sensor Entity",
         progress_ring_enabled: "Show Progress Ring",
+        progress_vertical_fill: "Vertical Fill (Bottom-Up)",
         progress_dynamic_color: "Dynamic Color (Green \u2192 Red)",
         progress_invert_color: "Invert Color Direction",
         respond_delay: "Response Delay",
@@ -209,6 +217,7 @@ function buildEditorForm() {
         bpm_entity: "Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.",
         progress_entity: "Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.",
         progress_ring_enabled: "Show the progress ring around the socket while idle. Disable to keep the plain idle look.",
+        progress_vertical_fill: "Fills both sides of the ring from the bottom up (50% = both sides at half height). Off = the original 360\xB0 clockwise sweep from the bottom.",
         progress_dynamic_color: "Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).",
         progress_invert_color: "Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.",
         respond_delay: "Seconds to wait before switching from Processing to Responding.",
@@ -257,6 +266,27 @@ function progressColor(pct, dynamic, inverted) {
   const t = Math.min(100, Math.max(0, pct)) / 100;
   const hue = inverted ? t * 120 : 120 - t * 120;
   return `hsl(${hue.toFixed(1)}, 100%, 45%)`;
+}
+function verticalProgressDash(pct) {
+  const R = 33;
+  const SIDE = 95.5;
+  const H = 161.5;
+  const CAP = Math.PI / 2 * R;
+  const PERIM = 4 * CAP + 2 * SIDE;
+  const t = Math.min(100, Math.max(0, pct)) / 100;
+  if (t <= 0) return "0 100";
+  const d = t * H;
+  let lit;
+  if (d <= R) {
+    lit = R * Math.acos(1 - d / R);
+  } else if (d <= R + SIDE) {
+    lit = CAP + (d - R);
+  } else {
+    lit = CAP + SIDE + R * Math.asin((d - R - SIDE) / R);
+  }
+  const L = lit / PERIM * 100;
+  const G = 50 - L;
+  return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)} ${G.toFixed(2)}`;
 }
 
 // src/template.js
@@ -1992,7 +2022,10 @@ function updateProgressRing(card) {
   }
   const dynamic = card.config.progress_dynamic_color === true;
   const inverted = card.config.progress_invert_color === true;
-  ring.setAttribute("stroke-dasharray", `${pct} 100`);
+  ring.setAttribute(
+    "stroke-dasharray",
+    card.config.progress_vertical_fill !== false ? verticalProgressDash(pct) : `${pct} 100`
+  );
   ring.setAttribute("stroke", progressColor(pct, dynamic, inverted));
   ring.setAttribute("opacity", "1");
 }

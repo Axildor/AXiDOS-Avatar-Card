@@ -13,7 +13,7 @@ import { startLidBehavior, stopLidBehavior, startIdleCycle, stopIdleCycle } from
 import { startDanceCycle, stopDanceCycle } from './behaviors/dance.js';
 import { startTalkAnim, stopTalkAnim } from './behaviors/talk.js';
 import { stopBop } from './behaviors/bop.js';
-import { progressColor } from './state-mapper.js';
+import { progressColor, verticalProgressDash } from './state-mapper.js';
 
 /** Stop every behavior engine and reset all visual layers. */
 function resetAll(card) {
@@ -128,7 +128,15 @@ export function updateProgressRing(card) {
   }
   const dynamic = card.config.progress_dynamic_color === true;
   const inverted = card.config.progress_invert_color === true;
-  ring.setAttribute('stroke-dasharray', `${pct} 100`);
+  // Vertical fill (default): two mirrored dashes climb both sides from the
+  // bottom, stopping at exactly pct% of the socket height. Circular fill:
+  // the original 360° clockwise sweep from bottom-center.
+  ring.setAttribute(
+    'stroke-dasharray',
+    card.config.progress_vertical_fill !== false
+      ? verticalProgressDash(pct)
+      : `${pct} 100`,
+  );
   ring.setAttribute('stroke', progressColor(pct, dynamic, inverted));
   ring.setAttribute('opacity', '1');
 }

@@ -73,6 +73,11 @@ export function buildEditorForm() {
             selector: { boolean: {} },
           },
           {
+            name: 'progress_vertical_fill',
+            default: true,
+            selector: { boolean: {} },
+          },
+          {
             name: 'progress_dynamic_color',
             default: false,
             selector: { boolean: {} },
@@ -150,6 +155,7 @@ export function buildEditorForm() {
         bpm_entity: 'BPM Sensor Entity',
         progress_entity: 'Progress Sensor Entity',
         progress_ring_enabled: 'Show Progress Ring',
+        progress_vertical_fill: 'Vertical Fill (Bottom-Up)',
         progress_dynamic_color: 'Dynamic Color (Green → Red)',
         progress_invert_color: 'Invert Color Direction',
         respond_delay: 'Response Delay',
@@ -174,6 +180,7 @@ export function buildEditorForm() {
         bpm_entity: 'Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.',
         progress_entity: 'Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.',
         progress_ring_enabled: 'Show the progress ring around the socket while idle. Disable to keep the plain idle look.',
+        progress_vertical_fill: 'Fills both sides of the ring from the bottom up (50% = both sides at half height). Off = the original 360° clockwise sweep from the bottom.',
         progress_dynamic_color: 'Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).',
         progress_invert_color: 'Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.',
         respond_delay: 'Seconds to wait before switching from Processing to Responding.',
