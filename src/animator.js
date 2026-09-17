@@ -29,6 +29,7 @@ export class AxidosAnimator {
       lidTop: root.getElementById('eye-lid'),
       lidBot: root.getElementById('eye-lid-bottom'),
       dangerRing: root.getElementById('danger-ring'),
+      progressRing: root.getElementById('progress-ring'),
       ledMatrices: root.querySelectorAll('.led-matrix'),
     };
 

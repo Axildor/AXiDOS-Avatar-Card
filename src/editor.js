@@ -56,6 +56,34 @@ export function buildEditorForm() {
         default: false,
         selector: { boolean: {} },
       },
+      // ── Progress Ring section ──
+      {
+        type: 'expandable',
+        name: 'progress_section',
+        title: 'Progress Ring',
+        flatten: true,
+        schema: [
+          {
+            name: 'progress_entity',
+            selector: { entity: { filter: { domain: 'sensor' } } },
+          },
+          {
+            name: 'progress_ring_enabled',
+            default: true,
+            selector: { boolean: {} },
+          },
+          {
+            name: 'progress_dynamic_color',
+            default: false,
+            selector: { boolean: {} },
+          },
+          {
+            name: 'progress_invert_color',
+            default: false,
+            selector: { boolean: {} },
+          },
+        ],
+      },
       // ── Tap / Press section ──
       {
         type: 'expandable',
@@ -120,6 +148,10 @@ export function buildEditorForm() {
         entity: 'Voice Assistant Entity',
         media_entity: 'Media Player Entity',
         bpm_entity: 'BPM Sensor Entity',
+        progress_entity: 'Progress Sensor Entity',
+        progress_ring_enabled: 'Show Progress Ring',
+        progress_dynamic_color: 'Dynamic Color (Green → Red)',
+        progress_invert_color: 'Invert Color Direction',
         respond_delay: 'Response Delay',
         zoom: 'Zoom Scale',
         transparent_bg: 'Transparent Background',
@@ -140,6 +172,10 @@ export function buildEditorForm() {
         entity: 'The assist_satellite entity AXiDOS reacts to (required).',
         media_entity: 'When this media player plays, AXiDOS dances to the BPM sensor.',
         bpm_entity: 'Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.',
+        progress_entity: 'Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.',
+        progress_ring_enabled: 'Show the progress ring around the socket while idle. Disable to keep the plain idle look.',
+        progress_dynamic_color: 'Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).',
+        progress_invert_color: 'Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.',
         respond_delay: 'Seconds to wait before switching from Processing to Responding.',
         zoom: 'Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.',
         transparent_bg: 'Removes the card background, shadow, and border.',

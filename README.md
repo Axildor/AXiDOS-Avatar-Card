@@ -70,6 +70,7 @@ type: custom:axidos-card
 entity: assist_satellite.living_room
 media_entity: media_player.spotify
 bpm_entity: sensor.universal_music_bpm
+progress_entity: sensor.pill_daily_progress
 respond_delay: 2.5
 zoom: 85 # Scale percentage of the SVG model inside the card. Default is 85. Above 100 the card grows to keep the model fully visible.
 tap_action:
@@ -87,6 +88,10 @@ tap_action:
 | `respond_delay` | number | Optional | Number of seconds to wait before changing from Processing (Orange) to Responding (Red). Useful if your TTS has a slight delay. Default is `0`. |
 | `zoom` | number | Optional | Scale percentage of the SVG model inside the card. Default is `85`. Above 100 the card slot grows with the model (rows AND columns) so the model actually enlarges and stays fully visible. |
 | `transparent_bg` | boolean | Optional | Removes the card background, shadow, and border. Default is `false`. |
+| `progress_entity` | string | Optional | The entity ID of a sensor whose state (0–100) drives the **progress ring** around the eye socket in idle mode. The ring starts at the bottom of the socket and fills clockwise; at 100% the entire socket is lit. Unavailable/unknown states hide the ring. |
+| `progress_ring_enabled` | boolean | Optional | Show the progress ring while idle. Default is `true`. Set to `false` to keep the plain idle look. |
+| `progress_dynamic_color` | boolean | Optional | Colors the ring by position on the 0–100 scale: green at 0%, yellow mid-scale, red at 100%. Default is `false` (the ring uses the idle pupil's amber shade). |
+| `progress_invert_color` | boolean | Optional | Flips the dynamic color direction: red at 0%, green at 100%. Only applies when `progress_dynamic_color` is on. Default is `false`. |
 | `tap_enabled` | boolean | Optional | Enables the tap-to-bop interaction. Default is `true`. |
 | `tap_action` | object | Optional | Standard HA action (`more-info`, `toggle`, `navigate`, `call-service`, etc.) fired on tap. Default is `{action: "none"}`. |
 | `tap_speed` | number | Optional | Bop animation speed, `0.1` (slow) – `2.0` (fast). Default is `0.5`. |
@@ -102,6 +107,7 @@ Download `demo.html` from the latest release and **double-click it** — it's fu
 
 Use it to:
 * **Preview all states** — Idle / Listening / Processing / Responding / Dancing buttons (or keys `1`–`5`), plus a BPM slider to test the dance engine at any tempo.
+* **Test the progress ring** — set a Progress Sensor in the ⚙️ Card Config popup and drag its value to watch the idle ring fill from the bottom of the socket.
 * **Take screenshots** — switch backdrops between HA Dark, HA Light, and a transparent checkerboard; press `H` for clean mode that hides all UI.
 * **Record GIFs** — the auto-cycle button walks through every state on a timer for a one-pass capture.
 * **Tweak configuration live** — the ⚙️ **Card Config** popup mirrors the HA visual editor (entities, response delay, zoom, transparent background, and all tap-physics options) and applies changes through `setConfig()`.

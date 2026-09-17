@@ -8,10 +8,10 @@
 
 import { sanitizeConfig, getStubConfig } from './config.js';
 import { buildEditorForm } from './editor.js';
-import { resolveState, parseBpm } from './state-mapper.js';
+import { resolveState, parseBpm, parseProgress } from './state-mapper.js';
 import { buildTemplate } from './template.js';
 import { AxidosAnimator } from './animator.js';
-import { applyState } from './states.js';
+import { applyState, updateProgressRing } from './states.js';
 import { bopHead } from './behaviors/bop.js';
 
 export class AxidosCard extends HTMLElement {
@@ -21,6 +21,8 @@ export class AxidosCard extends HTMLElement {
     this._lastHassVoice = null;
     this._lastHassMedia = null;
     this._lastHassBpm = null;
+    this._lastHassProgress = null;
+    this._progressPct = null;
     this._state = 'idle';
     this._currentBpm = 120;
     this._bopping = false;
@@ -43,6 +45,9 @@ export class AxidosCard extends HTMLElement {
       this.setupDOM();
       this.initAxidos();
       applyState(this, prevState || 'idle', this._currentBpm);
+      // Re-render the ring after a config change (entity swap, color toggles)
+      // — applyState only renders it in idle, so force a refresh here too.
+      updateProgressRing(this);
     }
   }
 
@@ -57,16 +62,29 @@ export class AxidosCard extends HTMLElement {
     const entity = this.config.entity;
     const mediaEntity = this.config.media_entity;
     const bpmEntity = this.config.bpm_entity;
+    const progressEntity = this.config.progress_entity;
     const newVoiceState = (entity && hass.states[entity]) ? hass.states[entity].state.toLowerCase() : 'idle';
     const newMediaState = (mediaEntity && hass.states[mediaEntity]) ? hass.states[mediaEntity].state.toLowerCase() : 'paused';
     const newBpmState = (bpmEntity && hass.states[bpmEntity]) ? hass.states[bpmEntity].state : '120';
+    const newProgressState = (progressEntity && hass.states[progressEntity]) ? hass.states[progressEntity].state : null;
 
     // Firehose gatekeeping: only react when a tracked entity actually changed
-    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState) return;
+    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState && this._lastHassProgress === newProgressState) return;
 
     this._lastHassVoice = newVoiceState;
     this._lastHassMedia = newMediaState;
     this._lastHassBpm = newBpmState;
+    this._lastHassProgress = newProgressState;
+
+    // Progress sensor: parse + cache on every tracked change. A percentage
+    // change while idle updates the ring in place (lightweight, no behavior
+    // restart); in any other state the ring is hidden and the value is just
+    // cached for the next idle entry.
+    const prevProgress = this._progressPct;
+    this._progressPct = parseProgress(newProgressState);
+    if (this._state === 'idle' && this._progressPct !== prevProgress) {
+      updateProgressRing(this);
+    }
 
     const currentBpm = parseBpm(newBpmState);
     const mapped = resolveState(newVoiceState, newMediaState);

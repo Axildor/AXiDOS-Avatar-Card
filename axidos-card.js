@@ -9,9 +9,13 @@ function getStubConfig() {
     entity: "",
     media_entity: "",
     bpm_entity: "",
+    progress_entity: "",
     respond_delay: 0,
     zoom: 85,
     transparent_bg: false,
+    progress_ring_enabled: true,
+    progress_dynamic_color: false,
+    progress_invert_color: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -27,6 +31,10 @@ function sanitizeConfig(config) {
   }
   c.zoom = clampNum(c.zoom, 85, 10, 200);
   c.respond_delay = clampNum(c.respond_delay, 0, 0, 16);
+  c.progress_entity = typeof c.progress_entity === "string" ? c.progress_entity : "";
+  c.progress_ring_enabled = c.progress_ring_enabled !== false;
+  c.progress_dynamic_color = c.progress_dynamic_color === true;
+  c.progress_invert_color = c.progress_invert_color === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
   c.tap_intensity = clampNum(c.tap_intensity, 1, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
@@ -84,6 +92,34 @@ function buildEditorForm() {
         name: "transparent_bg",
         default: false,
         selector: { boolean: {} }
+      },
+      // ── Progress Ring section ──
+      {
+        type: "expandable",
+        name: "progress_section",
+        title: "Progress Ring",
+        flatten: true,
+        schema: [
+          {
+            name: "progress_entity",
+            selector: { entity: { filter: { domain: "sensor" } } }
+          },
+          {
+            name: "progress_ring_enabled",
+            default: true,
+            selector: { boolean: {} }
+          },
+          {
+            name: "progress_dynamic_color",
+            default: false,
+            selector: { boolean: {} }
+          },
+          {
+            name: "progress_invert_color",
+            default: false,
+            selector: { boolean: {} }
+          }
+        ]
       },
       // ── Tap / Press section ──
       {
@@ -147,6 +183,10 @@ function buildEditorForm() {
         entity: "Voice Assistant Entity",
         media_entity: "Media Player Entity",
         bpm_entity: "BPM Sensor Entity",
+        progress_entity: "Progress Sensor Entity",
+        progress_ring_enabled: "Show Progress Ring",
+        progress_dynamic_color: "Dynamic Color (Green \u2192 Red)",
+        progress_invert_color: "Invert Color Direction",
         respond_delay: "Response Delay",
         zoom: "Zoom Scale",
         transparent_bg: "Transparent Background",
@@ -167,6 +207,10 @@ function buildEditorForm() {
         entity: "The assist_satellite entity AXiDOS reacts to (required).",
         media_entity: "When this media player plays, AXiDOS dances to the BPM sensor.",
         bpm_entity: "Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.",
+        progress_entity: "Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.",
+        progress_ring_enabled: "Show the progress ring around the socket while idle. Disable to keep the plain idle look.",
+        progress_dynamic_color: "Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).",
+        progress_invert_color: "Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.",
         respond_delay: "Seconds to wait before switching from Processing to Responding.",
         zoom: "Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.",
         transparent_bg: "Removes the card background, shadow, and border.",
@@ -199,6 +243,20 @@ function resolveState(voiceState, mediaState) {
 function parseBpm(rawBpm) {
   const n = parseFloat(rawBpm);
   return isNaN(n) ? 120 : n;
+}
+function parseProgress(raw) {
+  if (raw === void 0 || raw === null) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "" || s === "unavailable" || s === "unknown" || s === "none") return null;
+  const n = parseFloat(s);
+  if (isNaN(n)) return null;
+  return Math.min(100, Math.max(0, n));
+}
+function progressColor(pct, dynamic, inverted) {
+  if (!dynamic) return "#ffcc00";
+  const t = Math.min(100, Math.max(0, pct)) / 100;
+  const hue = inverted ? t * 120 : 120 - t * 120;
+  return `hsl(${hue.toFixed(1)}, 100%, 45%)`;
 }
 
 // src/template.js
@@ -269,6 +327,13 @@ function buildTemplate(config) {
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
       #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
+
+      /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
+         length IS the percentage). Smooth transitions turn sensor jumps into
+         a glide; opacity gates visibility to the idle state. */
+      #progress-ring {
+        transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
+      }
     </style>
     <div id="scene">
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
@@ -424,6 +489,13 @@ function buildTemplate(config) {
               <path d="m 92,359 5,2 v 6 l -5,2 z" fill="#050505"/>
               <path d="m 92,379 5,2 v 8 l -5,2 z" fill="#050505"/>
               <rect id="danger-ring" x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#ff2200" stroke-width="2" opacity="0"/>
+              <!-- Idle progress ring: same stadium outline as #danger-ring but
+                   as a path starting at BOTTOM-CENTER (130,444.75) running
+                   clockwise (left side first). pathLength=100 normalizes the
+                   geometry so stroke-dasharray "N 100" fills exactly N%.
+                   Separate element from #danger-ring so the responding-state
+                   red flash and the idle progress fill never interact. -->
+              <path id="progress-ring" d="M 130,444.75 A 33,33 0 0 1 97,411.75 L 97,316.25 A 33,33 0 0 1 130,283.25 A 33,33 0 0 1 163,316.25 L 163,411.75 A 33,33 0 0 1 130,444.75 Z" pathLength="100" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 100" opacity="0"/>
               </g>
               </g>
             </g>
@@ -457,6 +529,7 @@ var AxidosAnimator = class {
       lidTop: root.getElementById("eye-lid"),
       lidBot: root.getElementById("eye-lid-bottom"),
       dangerRing: root.getElementById("danger-ring"),
+      progressRing: root.getElementById("progress-ring"),
       ledMatrices: root.querySelectorAll(".led-matrix")
     };
     this.ledVarTargets = [
@@ -1829,6 +1902,7 @@ function resetAll(card) {
   stopBop(card);
   a.el.ledMatrices.forEach((m) => m.classList.remove("pulsing"));
   if (a.el.dangerRing) a.el.dangerRing.setAttribute("opacity", "0");
+  if (a.el.progressRing) a.el.progressRing.setAttribute("opacity", "0");
   a.el.eyeLayerIdle.style.opacity = "0";
   a.el.eyeLayerListen.style.opacity = "0";
   a.el.eyeLayerProcess.style.opacity = "0";
@@ -1852,6 +1926,7 @@ function applyStateVisuals(card, state, bpm) {
     a.currentBaseLid = 0;
     a.setLEDs("#ffb800", "0.15");
     a.resetBodySwivel();
+    updateProgressRing(card);
     startLidBehavior(card);
     startIdleCycle(card);
   } else if (state === "dancing") {
@@ -1905,6 +1980,22 @@ function applyStateVisuals(card, state, bpm) {
     startTalkAnim(card);
   }
 }
+function updateProgressRing(card) {
+  const a = card.animator;
+  const ring = a.el.progressRing;
+  if (!ring) return;
+  const pct = card._progressPct;
+  const enabled = card.config.progress_ring_enabled !== false && card.config.progress_entity && pct !== null && pct !== void 0;
+  if (!enabled) {
+    ring.setAttribute("opacity", "0");
+    return;
+  }
+  const dynamic = card.config.progress_dynamic_color === true;
+  const inverted = card.config.progress_invert_color === true;
+  ring.setAttribute("stroke-dasharray", `${pct} 100`);
+  ring.setAttribute("stroke", progressColor(pct, dynamic, inverted));
+  ring.setAttribute("opacity", "1");
+}
 function applyState(card, mapped, bpm) {
   const a = card.animator;
   a.clearTimeout("respond-delay");
@@ -1928,6 +2019,8 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassVoice = null;
     this._lastHassMedia = null;
     this._lastHassBpm = null;
+    this._lastHassProgress = null;
+    this._progressPct = null;
     this._state = "idle";
     this._currentBpm = 120;
     this._bopping = false;
@@ -1951,6 +2044,7 @@ var AxidosCard = class extends HTMLElement {
       this.setupDOM();
       this.initAxidos();
       applyState(this, prevState || "idle", this._currentBpm);
+      updateProgressRing(this);
     }
   }
   set hass(hass) {
@@ -1964,13 +2058,21 @@ var AxidosCard = class extends HTMLElement {
     const entity = this.config.entity;
     const mediaEntity = this.config.media_entity;
     const bpmEntity = this.config.bpm_entity;
+    const progressEntity = this.config.progress_entity;
     const newVoiceState = entity && hass.states[entity] ? hass.states[entity].state.toLowerCase() : "idle";
     const newMediaState = mediaEntity && hass.states[mediaEntity] ? hass.states[mediaEntity].state.toLowerCase() : "paused";
     const newBpmState = bpmEntity && hass.states[bpmEntity] ? hass.states[bpmEntity].state : "120";
-    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState) return;
+    const newProgressState = progressEntity && hass.states[progressEntity] ? hass.states[progressEntity].state : null;
+    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState && this._lastHassProgress === newProgressState) return;
     this._lastHassVoice = newVoiceState;
     this._lastHassMedia = newMediaState;
     this._lastHassBpm = newBpmState;
+    this._lastHassProgress = newProgressState;
+    const prevProgress = this._progressPct;
+    this._progressPct = parseProgress(newProgressState);
+    if (this._state === "idle" && this._progressPct !== prevProgress) {
+      updateProgressRing(this);
+    }
     const currentBpm = parseBpm(newBpmState);
     const mapped = resolveState(newVoiceState, newMediaState);
     if (this._state !== mapped) {

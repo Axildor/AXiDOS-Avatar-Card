@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.4.0
+
+### Idle Progress Ring
+
+* **Progress ring on the socket** — a new `progress_entity` sensor (0–100) drives a loading bar around the pill-shaped eye socket in idle mode. The ring starts at the bottom of the socket and fills clockwise; at 100% the entire socket is lit. The red responding-state ring is untouched — this is a separate, idle-only element.
+* **Static or dynamic color** — by default the ring uses the idle pupil's amber shade. A **Dynamic Color** toggle sweeps green → yellow → red across the 0–100 scale, and an **Invert** toggle flips it to red → green.
+* **Smooth updates** — percentage changes glide the dash fill (0.6s ease) instead of snapping; unavailable/unknown sensor states hide the ring; a percentage-only change while idle updates the ring in place without restarting any idle behaviors.
+
 ## 5.3.0
 
 ### The Dance Engine, rebuilt from the legacy choreography

@@ -74,6 +74,13 @@ export function buildTemplate(config) {
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
       #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
+
+      /* Idle progress ring: dasharray-driven fill (pathLength=100 → the dash
+         length IS the percentage). Smooth transitions turn sensor jumps into
+         a glide; opacity gates visibility to the idle state. */
+      #progress-ring {
+        transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
+      }
     </style>
     <div id="scene">
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
@@ -229,6 +236,13 @@ export function buildTemplate(config) {
               <path d="m 92,359 5,2 v 6 l -5,2 z" fill="#050505"/>
               <path d="m 92,379 5,2 v 8 l -5,2 z" fill="#050505"/>
               <rect id="danger-ring" x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#ff2200" stroke-width="2" opacity="0"/>
+              <!-- Idle progress ring: same stadium outline as #danger-ring but
+                   as a path starting at BOTTOM-CENTER (130,444.75) running
+                   clockwise (left side first). pathLength=100 normalizes the
+                   geometry so stroke-dasharray "N 100" fills exactly N%.
+                   Separate element from #danger-ring so the responding-state
+                   red flash and the idle progress fill never interact. -->
+              <path id="progress-ring" d="M 130,444.75 A 33,33 0 0 1 97,411.75 L 97,316.25 A 33,33 0 0 1 130,283.25 A 33,33 0 0 1 163,316.25 L 163,411.75 A 33,33 0 0 1 130,444.75 Z" pathLength="100" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 100" opacity="0"/>
               </g>
               </g>
             </g>

@@ -13,6 +13,7 @@ import { startLidBehavior, stopLidBehavior, startIdleCycle, stopIdleCycle } from
 import { startDanceCycle, stopDanceCycle } from './behaviors/dance.js';
 import { startTalkAnim, stopTalkAnim } from './behaviors/talk.js';
 import { stopBop } from './behaviors/bop.js';
+import { progressColor } from './state-mapper.js';
 
 /** Stop every behavior engine and reset all visual layers. */
 function resetAll(card) {
@@ -24,6 +25,8 @@ function resetAll(card) {
   stopBop(card);
   a.el.ledMatrices.forEach((m) => m.classList.remove('pulsing'));
   if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '0');
+  // The progress ring is idle-only: every non-idle state hides it.
+  if (a.el.progressRing) a.el.progressRing.setAttribute('opacity', '0');
   a.el.eyeLayerIdle.style.opacity = '0';
   a.el.eyeLayerListen.style.opacity = '0';
   a.el.eyeLayerProcess.style.opacity = '0';
@@ -50,6 +53,7 @@ export function applyStateVisuals(card, state, bpm) {
     a.currentBaseLid = 0;
     a.setLEDs('#ffb800', '0.15');
     a.resetBodySwivel();
+    updateProgressRing(card);
     startLidBehavior(card);
     startIdleCycle(card);
   } else if (state === 'dancing') {
@@ -102,6 +106,31 @@ export function applyStateVisuals(card, state, bpm) {
     a.setBodySwivel(0, 1, 0.8);
     startTalkAnim(card);
   }
+}
+
+/**
+ * Render the idle progress ring from card._progressPct (0-100 or null).
+ * Lightweight: two attribute writes on #progress-ring only — no behavior
+ * restart, no head-pose reset. Called from the idle state branch and from
+ * the hass setter on a percentage-only change while idle.
+ */
+export function updateProgressRing(card) {
+  const a = card.animator;
+  const ring = a.el.progressRing;
+  if (!ring) return;
+  const pct = card._progressPct;
+  const enabled = card.config.progress_ring_enabled !== false
+    && card.config.progress_entity
+    && pct !== null && pct !== undefined;
+  if (!enabled) {
+    ring.setAttribute('opacity', '0');
+    return;
+  }
+  const dynamic = card.config.progress_dynamic_color === true;
+  const inverted = card.config.progress_invert_color === true;
+  ring.setAttribute('stroke-dasharray', `${pct} 100`);
+  ring.setAttribute('stroke', progressColor(pct, dynamic, inverted));
+  ring.setAttribute('opacity', '1');
 }
 
 /**
