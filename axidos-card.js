@@ -285,8 +285,8 @@ function verticalProgressDash(pct) {
     lit = CAP + SIDE + R * Math.asin((d - R - SIDE) / R);
   }
   const L = lit / PERIM * 100;
-  const G = 50 - L;
-  return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)} ${G.toFixed(2)}`;
+  const G = 100 - 2 * L;
+  return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)}`;
 }
 
 // src/template.js

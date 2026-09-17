@@ -65,13 +65,17 @@ export function progressColor(pct, dynamic, inverted) {
  *
  * The path starts at BOTTOM-CENTER and runs clockwise: bottom-left cap arc
  * (quarter circle, r=33) → left straight (95.5px) → top-left cap arc →
- * top-right cap arc → right straight → bottom-right cap arc. Exactly half
- * the perimeter (offset 50/100) lands at TOP-CENTER, so a 4-value dash
- * pattern [L, 50-L, L, 50-L] lights two mirrored dashes: one climbing the
- * left side from the bottom, one descending the right side from the top —
- * both stopping at exactly pct% of the socket height. At 50% both sides
- * stand at half height; at 100% the dashes meet at top-center and the whole
- * ring is lit.
+ * top-right cap arc → right straight → bottom-right cap arc. A 3-value dash
+ * pattern [L, 100−2L, L] lights two dashes that BOTH start at bottom-center:
+ * dash 1 climbs the left side, dash 2 (after the single gap) climbs the right
+ * side — so both sides rise symmetrically from the bottom, and the unlit gap
+ * sits at the TOP. At 25% both sides stand 25% up from the bottom; at 50%
+ * both stand at half height; at 100% the dashes meet at top-center (gap 0)
+ * and the whole ring is lit.
+ *
+ * (The 5.4.1 release used a 4-value pattern [L, 50−L, L, 50−L], which put
+ * the second dash's start at top-center — the right side filled DOWN from
+ * the top instead of up from the bottom. The 3-value pattern fixes this.)
  *
  * The dash length is computed piecewise in real px (cap arcs r=33, straight
  * sides 95.5px, socket height 161.5px) then normalized by the true perimeter
@@ -99,6 +103,6 @@ export function verticalProgressDash(pct) {
     lit = CAP + SIDE + R * Math.asin((d - R - SIDE) / R);
   }
   const L = (lit / PERIM) * 100;   // normalize to pathLength=100
-  const G = 50 - L;
-  return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)} ${G.toFixed(2)}`;
+  const G = 100 - 2 * L;           // single gap, always at the TOP
+  return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)}`;
 }

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.4.2
+
+### Vertical Fill Symmetry Fix
+
+* **Both sides now climb from the bottom** — fixed a bug in the 5.4.1 vertical fill where the right side of the ring filled *down from the top* instead of up from the bottom (at 25% one side stood a quarter up, the other a quarter down from the top). The dash pattern is now a 3-value `[L, gap, L]` array so both dashes start at bottom-center and the unlit gap always sits at the top; at 100% the dashes meet at top-center and the whole socket is lit.
+
 ## 5.4.1
 
 ### Vertical Progress Ring Fill

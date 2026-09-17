@@ -128,9 +128,10 @@ export function updateProgressRing(card) {
   }
   const dynamic = card.config.progress_dynamic_color === true;
   const inverted = card.config.progress_invert_color === true;
-  // Vertical fill (default): two mirrored dashes climb both sides from the
-  // bottom, stopping at exactly pct% of the socket height. Circular fill:
-  // the original 360° clockwise sweep from bottom-center.
+  // Vertical fill (default): a 3-value dasharray [L, 100−2L, L] lights two
+  // dashes that BOTH climb from bottom-center (left side, then right side),
+  // stopping at exactly pct% of the socket height with the gap at the top.
+  // Circular fill: the original 360° clockwise sweep from bottom-center.
   ring.setAttribute(
     'stroke-dasharray',
     card.config.progress_vertical_fill !== false
