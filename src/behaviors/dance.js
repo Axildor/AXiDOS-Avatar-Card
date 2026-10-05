@@ -158,7 +158,11 @@ export function startDanceCycle(card, bpm) {
         a.el.eyeHalo.style.opacity = '0.05';
         lastHalo = '0.05';
         a.el.eyeCenter.style.transform = 'scale(1)';
-        a.setBellows(0, 0.3);
+        // Recovery duration is capped relative to the beat so it can't
+        // outlive the remaining beat time at high BPM (which would retarget
+        // the in-flight transition mid-flight every beat). At low BPM the
+        // cap never engages (beatSec * 0.6 > 0.3) — behavior unchanged.
+        a.setBellows(0, Math.min(0.3, beatSec * 0.6));
       }
     }, beatMs * 0.3);
 
@@ -195,7 +199,14 @@ export function startDanceCycle(card, bpm) {
     // Body swivel (TORSO LAG law): half the head rotation over a LONG
     // ease-in-out sway (3 beats) — the torso lags behind the head like a
     // slow groove instead of twitching with every beat.
-    a.setBodySwivel(move.r * -0.5, 1, beatSec * 3);
+    // Tier gate: at club/hardcore tempos a 3-beat swivel re-issued every
+    // beat is always interrupted at ~1/3 travel, forcing a synchronous
+    // transform read + retarget per beat (fps scales down with BPM on
+    // Android tablets). Tier 2/3 use a duration that mostly settles within
+    // one beat; tier 0/1 keep the slow follow-through (retarget frequency
+    // is low enough not to matter, and the long sway is intentional).
+    const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+    a.setBodySwivel(move.r * -0.5, 1, swivelDur);
 
     // Chill lids (PERSONALITY law): the phrase supplies the lid attitude;
     // a relaxed floor keeps a whisper of droop so accents still read.

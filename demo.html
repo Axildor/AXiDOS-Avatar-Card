@@ -2028,7 +2028,7 @@ function startDanceCycle(card, bpm) {
         a.el.eyeHalo.style.opacity = "0.05";
         lastHalo = "0.05";
         a.el.eyeCenter.style.transform = "scale(1)";
-        a.setBellows(0, 0.3);
+        a.setBellows(0, Math.min(0.3, beatSec * 0.6));
       }
     }, beatMs * 0.3);
     if (tierIdx <= 1) {
@@ -2043,7 +2043,8 @@ function startDanceCycle(card, bpm) {
     const ease = move.flow ? FLOW_EASE : isDownBeat ? HIT_DOWN_EASE : HIT_OFF_EASE;
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
-    a.setBodySwivel(move.r * -0.5, 1, beatSec * 3);
+    const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+    a.setBodySwivel(move.r * -0.5, 1, swivelDur);
     const lid = Math.max(move.lid, currentBpm < 125 ? 0.15 : 0.08);
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
