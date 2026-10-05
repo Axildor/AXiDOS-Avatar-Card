@@ -1249,6 +1249,8 @@ function startDanceCycle(card, bpm) {
   let lastLedOpacity = null;
   let lastHalo = null;
   let lastStrobeFill = null;
+  let lastEyeScale = null;
+  let lastSwivelRot = null;
   const step = () => {
     if (card._state !== "dancing") return;
     const executeTick = () => {
@@ -1293,8 +1295,11 @@ function startDanceCycle(card, bpm) {
       a.el.eyeCenter.setAttribute("fill", "#ffffff");
       lastStrobeFill = "#ffffff";
     }
-    a.el.eyeCenter.style.transform = `scale(${eyeHitScale})`;
-    a.setBellows(move.pump, 0.12);
+    const eyeScale = `scale(${eyeHitScale})`;
+    if (lastEyeScale !== eyeScale) {
+      a.el.eyeCenter.style.transform = eyeScale;
+      lastEyeScale = eyeScale;
+    }
     a.setTimeout("dance-led", () => {
       if (card._state === "dancing") {
         if (lastLedOpacity !== "0.15") {
@@ -1303,8 +1308,10 @@ function startDanceCycle(card, bpm) {
         }
         a.el.eyeHalo.style.opacity = "0.05";
         lastHalo = "0.05";
-        a.el.eyeCenter.style.transform = "scale(1)";
-        a.setBellows(0, Math.min(0.3, beatSec * 0.6));
+        if (lastEyeScale !== "scale(1)") {
+          a.el.eyeCenter.style.transform = "scale(1)";
+          lastEyeScale = "scale(1)";
+        }
       }
     }, beatMs * 0.3);
     if (tierIdx <= 1) {
@@ -1319,8 +1326,12 @@ function startDanceCycle(card, bpm) {
     const ease = move.flow ? FLOW_EASE : isDownBeat ? HIT_DOWN_EASE : HIT_OFF_EASE;
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
-    const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
-    a.setBodySwivel(move.r * -0.5, 1, swivelDur);
+    const swivelRot = move.r * -0.5;
+    if (tierIdx >= 2 || lastSwivelRot !== swivelRot) {
+      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+      a.setBodySwivel(swivelRot, 1, swivelDur);
+      lastSwivelRot = swivelRot;
+    }
     const lid = Math.max(move.lid, currentBpm < 125 ? 0.15 : 0.08);
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
@@ -2018,6 +2029,8 @@ var AxidosAnimator = class {
     ].filter(Boolean);
     this._lastLedColor = null;
     this._lastLedOpacity = null;
+    this._lastLidAmount = null;
+    this._lastLidDur = null;
     this.currentBaseLid = 0;
     this.currentLedColor = "#ffb800";
     this.currentLedOpacity = "0.15";
@@ -2078,6 +2091,9 @@ var AxidosAnimator = class {
     this.el.torsoSwivel.style.transform = "";
   }
   setLid(amount, dur = 0.7) {
+    if (amount === this._lastLidAmount && dur === this._lastLidDur) return;
+    this._lastLidAmount = amount;
+    this._lastLidDur = dur;
     const px = amount * 17;
     this.el.lidTop.style.transition = `transform ${dur}s ease-in-out`;
     this.el.lidBot.style.transition = `transform ${dur}s ease-in-out`;

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.5.1
+
+### Dance Performance Hotfix
+
+* **Smoother dancing on low-power tablets** — removed three sources of per-beat main-thread work that stacked up at high BPM (club/hardcore tempos, 160+ BPM):
+  * The ribbed grille behind the eye no longer jiggles on every beat — it now only follows the eye's gaze. This was two unguarded style writes per beat on a 32-element group for a barely-visible background texture.
+  * The eyelids and the pupil's bright core are only re-styled when their value actually changes (previously four unguarded lid writes and two unguarded eye-core writes per beat).
+  * At chill/groovy tempos the torso's slow sway now completes its full travel instead of being re-issued (and chopped) every beat — the sway reads smoother and the per-beat retarget cost is gone.
+* **No visual choreography changes** — every move, accent, strobe, and phrase is untouched; identical style writes are simply skipped.
+
 ## 5.5.0
 
 ### Dance Motion Fixes

@@ -47,6 +47,8 @@ export class AxidosAnimator {
     ].filter(Boolean);
     this._lastLedColor = null;
     this._lastLedOpacity = null;
+    this._lastLidAmount = null;
+    this._lastLidDur = null;
 
     // Mutable visual state (read by bop save/restore, lid loop, etc.)
     this.currentBaseLid = 0;
@@ -122,6 +124,13 @@ export class AxidosAnimator {
   }
 
   setLid(amount, dur = 0.7) {
+    // Redundant-write guard (mirrors setLedVars): identical amount+duration
+    // skips all four style writes. The dance loop re-issues setBaseLid every
+    // beat with a mostly-constant value — without this guard that is 4
+    // unguarded writes per beat on two elements.
+    if (amount === this._lastLidAmount && dur === this._lastLidDur) return;
+    this._lastLidAmount = amount;
+    this._lastLidDur = dur;
     const px = amount * 17;
     this.el.lidTop.style.transition = `transform ${dur}s ease-in-out`;
     this.el.lidBot.style.transition = `transform ${dur}s ease-in-out`;

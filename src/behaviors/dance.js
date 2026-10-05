@@ -91,11 +91,17 @@ export function startDanceCycle(card, bpm) {
   let variant = phraseVariant(tierIdx, phraseId, phraseCount);
 
   // Redundant-write guards: the LED color never changes during a dance and
-  // the halo/strobe only change on specific phrases/beats — skip identical
-  // style writes.
+  // the halo/strobe/eye-pulse only change on specific phrases/beats — skip
+  // identical style writes.
   let lastLedOpacity = null;
   let lastHalo = null;
   let lastStrobeFill = null;
+  let lastEyeScale = null;
+  // Body-swivel guard (tiers 0/1): the 3-beat sway is only re-issued when
+  // the target rotation actually changes, so the transition completes its
+  // travel instead of being interrupted at ~1/3 every beat (which forced a
+  // synchronous transform read + retarget per beat).
+  let lastSwivelRot = null;
 
   const step = () => {
     if (card._state !== 'dancing') return;
@@ -147,22 +153,17 @@ export function startDanceCycle(card, bpm) {
     }
     // Eye pulse: #eye-center carries a short CSS transform transition (see
     // template.js), so this write pulses the pupil organically instead of
-    // snapping it open/closed every beat.
-    a.el.eyeCenter.style.transform = `scale(${eyeHitScale})`;
-    // Bellows pump: GRAVITY-COUPLED — the phrase compresses on the downbeat
-    // dip and releases (0) on the rise.
-    a.setBellows(move.pump, 0.12);
+    // snapping it open/closed every beat. Redundant-write guarded: the
+    // scale value is constant within a dance, so after the first beat this
+    // write (and its reset below) never fires again.
+    const eyeScale = `scale(${eyeHitScale})`;
+    if (lastEyeScale !== eyeScale) { a.el.eyeCenter.style.transform = eyeScale; lastEyeScale = eyeScale; }
     a.setTimeout('dance-led', () => {
       if (card._state === 'dancing') {
         if (lastLedOpacity !== '0.15') { a.setLEDs('#1DB954', '0.15'); lastLedOpacity = '0.15'; }
         a.el.eyeHalo.style.opacity = '0.05';
         lastHalo = '0.05';
-        a.el.eyeCenter.style.transform = 'scale(1)';
-        // Recovery duration is capped relative to the beat so it can't
-        // outlive the remaining beat time at high BPM (which would retarget
-        // the in-flight transition mid-flight every beat). At low BPM the
-        // cap never engages (beatSec * 0.6 > 0.3) — behavior unchanged.
-        a.setBellows(0, Math.min(0.3, beatSec * 0.6));
+        if (lastEyeScale !== 'scale(1)') { a.el.eyeCenter.style.transform = 'scale(1)'; lastEyeScale = 'scale(1)'; }
       }
     }, beatMs * 0.3);
 
@@ -203,10 +204,16 @@ export function startDanceCycle(card, bpm) {
     // beat is always interrupted at ~1/3 travel, forcing a synchronous
     // transform read + retarget per beat (fps scales down with BPM on
     // Android tablets). Tier 2/3 use a duration that mostly settles within
-    // one beat; tier 0/1 keep the slow follow-through (retarget frequency
-    // is low enough not to matter, and the long sway is intentional).
-    const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
-    a.setBodySwivel(move.r * -0.5, 1, swivelDur);
+    // one beat; tier 0/1 keep the slow follow-through but only re-issue the
+    // write when the target rotation actually changes — the 3-beat sway
+    // then completes its travel instead of being chopped every beat, and
+    // the per-beat retarget cost disappears.
+    const swivelRot = move.r * -0.5;
+    if (tierIdx >= 2 || lastSwivelRot !== swivelRot) {
+      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+      a.setBodySwivel(swivelRot, 1, swivelDur);
+      lastSwivelRot = swivelRot;
+    }
 
     // Chill lids (PERSONALITY law): the phrase supplies the lid attitude;
     // a relaxed floor keeps a whisper of droop so accents still read.
@@ -252,5 +259,8 @@ export function stopDanceCycle(card) {
   // CSS transitions complete on their own — there is no WAAPI animation to
   // cancel and no fill:forwards snap. The head glides to its last target and
   // the next state's setHead() retargets it from there.
+  // Safety net: clear any residual bellows pump (the dance loop no longer
+  // pumps — the bellows only tracks the gaze offset — but a pump value may
+  // survive from a pre-5.5.1 session or a bop path).
   a.setBellows(0, 0.3);
 }
