@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.6.0
+
+### Progress Ring: Dance Mode + Configurable Bounds
+
+* **Progress ring while dancing** — the ring no longer disappears the moment the music starts. A new **Show While Dancing** toggle (default **on**) keeps the progress ring visible around the socket during dance mode, updating live with the sensor. Turn it off to restore the idle-only ring.
+* **Configurable bounds** — the ring no longer assumes a 0–100 percentage sensor. New **Min Value** and **Max Value** options map any sensor range onto the ring: the sensor's `min` value renders an empty ring, `max` renders it full, and values in between scale linearly (e.g. min 20 / max 80 makes 50 read as 50%). Defaults keep the legacy 0–100 behavior; values outside the range clamp to empty/full.
+* **Clean 0%** — at 0% the ring is now hidden entirely. Previously a zero-length dash still painted a small colored line at the bottom of the socket; now an empty (or below-minimum) sensor shows nothing at all.
+* **Verified** — new `verify_progress_bounds.mjs` suite (35 checks) covers the bounds normalization math, the 0%-hidden contract, and the dance-mode visibility toggle; all existing suites remain green.
+
 ## 5.5.0
 
 ### Chill-Tier Dance Motion Fix (< 90 BPM)

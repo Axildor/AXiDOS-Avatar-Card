@@ -88,9 +88,12 @@ tap_action:
 | `respond_delay` | number | Optional | Number of seconds to wait before changing from Processing (Orange) to Responding (Red). Useful if your TTS has a slight delay. Default is `0`. |
 | `zoom` | number | Optional | Scale percentage of the SVG model inside the card. Default is `85`. Above 100 the card slot grows with the model (rows AND columns) so the model actually enlarges and stays fully visible. |
 | `transparent_bg` | boolean | Optional | Removes the card background, shadow, and border. Default is `false`. |
-| `progress_entity` | string | Optional | The entity ID of a sensor whose state (0–100) drives the **progress ring** around the eye socket in idle mode. The ring starts at the bottom of the socket and fills clockwise; at 100% the entire socket is lit. Unavailable/unknown states hide the ring. |
+| `progress_entity` | string | Optional | The entity ID of a sensor whose state drives the **progress ring** around the eye socket. The ring starts at the bottom of the socket and fills upward; the `progress_max` value lights the entire socket. Unavailable/unknown states hide the ring. |
 | `progress_ring_enabled` | boolean | Optional | Show the progress ring while idle. Default is `true`. Set to `false` to keep the plain idle look. |
 | `progress_vertical_fill` | boolean | Optional | Fills both sides of the ring from the bottom up — at 50% both sides stand at half height, at 100% the whole socket is lit. Default is `true`. Set to `false` for the original 360° clockwise sweep from the bottom. |
+| `progress_show_in_dance` | boolean | Optional | Keep the progress ring visible while AXiDOS is dancing. Default is `true`. Set to `false` for the idle-only ring. |
+| `progress_min` | number | Optional | The sensor value that maps to an empty ring (0%). Default is `0`. |
+| `progress_max` | number | Optional | The sensor value that maps to a full ring (100%). Default is `100`. Values outside the range clamp to empty/full. |
 | `progress_dynamic_color` | boolean | Optional | Colors the ring by position on the 0–100 scale: green at 0%, yellow mid-scale, red at 100%. Default is `false` (the ring uses the idle pupil's amber shade). |
 | `progress_invert_color` | boolean | Optional | Flips the dynamic color direction: red at 0%, green at 100%. Only applies when `progress_dynamic_color` is on. Default is `false`. |
 | `tap_enabled` | boolean | Optional | Enables the tap-to-bop interaction. Default is `true`. |

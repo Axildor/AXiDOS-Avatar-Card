@@ -78,6 +78,28 @@ export function buildEditorForm() {
             selector: { boolean: {} },
           },
           {
+            name: 'progress_show_in_dance',
+            default: true,
+            selector: { boolean: {} },
+          },
+          {
+            type: 'grid',
+            name: '',
+            column_min_width: '150px',
+            schema: [
+              {
+                name: 'progress_min',
+                default: 0,
+                selector: { number: { min: -1000000, max: 1000000, step: 'any' } },
+              },
+              {
+                name: 'progress_max',
+                default: 100,
+                selector: { number: { min: -1000000, max: 1000000, step: 'any' } },
+              },
+            ],
+          },
+          {
             name: 'progress_dynamic_color',
             default: false,
             selector: { boolean: {} },
@@ -178,9 +200,12 @@ export function buildEditorForm() {
         entity: 'The assist_satellite entity AXiDOS reacts to (required).',
         media_entity: 'When this media player plays, AXiDOS dances to the BPM sensor.',
         bpm_entity: 'Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.',
-        progress_entity: 'Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.',
+        progress_entity: 'Sensor whose state fills the socket ring in idle mode. Starts at the bottom, the max value lights the whole socket.',
         progress_ring_enabled: 'Show the progress ring around the socket while idle. Disable to keep the plain idle look.',
         progress_vertical_fill: 'Fills both sides of the ring from the bottom up (50% = both sides at half height). Off = the original 360° clockwise sweep from the bottom.',
+        progress_show_in_dance: 'Keep the progress ring visible while AXiDOS is dancing. Off = the ring only shows while idle.',
+        progress_min: 'Sensor value that maps to 0% (ring empty). Defaults to 0.',
+        progress_max: 'Sensor value that maps to 100% (ring full). Defaults to 100. Values outside the range clamp to empty/full.',
         progress_dynamic_color: 'Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).',
         progress_invert_color: 'Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.',
         respond_delay: 'Seconds to wait before switching from Processing to Responding.',

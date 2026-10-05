@@ -31,17 +31,26 @@ export function parseBpm(rawBpm) {
 }
 
 /**
- * Parse a progress sensor state string into a clamped 0-100 number.
+ * Parse a progress sensor state string and normalize it to the ring's 0-100
+ * scale using the configured bounds (progress_min / progress_max).
+ *
+ * The raw sensor value v is mapped as: pct = (v − min) / (max − min) × 100,
+ * clamped to [0, 100]. With the default bounds (0, 100) this is the legacy
+ * identity behavior. Values below min read as 0%, above max as 100%.
+ *
  * Returns null for unavailable/unknown/non-numeric states so the caller can
  * hide the ring instead of showing a bogus value.
  */
-export function parseProgress(raw) {
+export function parseProgress(raw, min = 0, max = 100) {
   if (raw === undefined || raw === null) return null;
   const s = String(raw).trim().toLowerCase();
   if (s === '' || s === 'unavailable' || s === 'unknown' || s === 'none') return null;
   const n = parseFloat(s);
   if (isNaN(n)) return null;
-  return Math.min(100, Math.max(0, n));
+  const lo = Number.isFinite(min) ? min : 0;
+  const hi = Number.isFinite(max) ? max : 100;
+  if (hi <= lo) return Math.min(100, Math.max(0, n));
+  return Math.min(100, Math.max(0, ((n - lo) / (hi - lo)) * 100));
 }
 
 /**

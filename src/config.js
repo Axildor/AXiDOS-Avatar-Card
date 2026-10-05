@@ -20,6 +20,9 @@ export function getStubConfig() {
     transparent_bg: false,
     progress_ring_enabled: true,
     progress_vertical_fill: true,
+    progress_show_in_dance: true,
+    progress_min: 0,
+    progress_max: 100,
     progress_dynamic_color: false,
     progress_invert_color: false,
     tap_enabled: true,
@@ -48,8 +51,19 @@ export function sanitizeConfig(config) {
   c.progress_entity = typeof c.progress_entity === 'string' ? c.progress_entity : '';
  c.progress_ring_enabled = c.progress_ring_enabled !== false;
  c.progress_vertical_fill = c.progress_vertical_fill !== false;
+ c.progress_show_in_dance = c.progress_show_in_dance !== false;
  c.progress_dynamic_color = c.progress_dynamic_color === true;
  c.progress_invert_color = c.progress_invert_color === true;
+  // Progress bounds: map the sensor's raw range onto the 0-100 ring scale.
+  // Defaults keep the legacy 0-100 percentage behavior. If the user gives an
+  // inverted or empty range (min >= max), fall back to the defaults rather
+  // than producing a divide-by-zero / always-0% ring.
+  c.progress_min = clampNum(c.progress_min, 0, -1e9, 1e9);
+  c.progress_max = clampNum(c.progress_max, 100, -1e9, 1e9);
+  if (c.progress_min >= c.progress_max) {
+    c.progress_min = 0;
+    c.progress_max = 100;
+  }
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2.0);
   c.tap_intensity = clampNum(c.tap_intensity, 1.0, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));

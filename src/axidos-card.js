@@ -76,13 +76,17 @@ export class AxidosCard extends HTMLElement {
     this._lastHassBpm = newBpmState;
     this._lastHassProgress = newProgressState;
 
-    // Progress sensor: parse + cache on every tracked change. A percentage
-    // change while idle updates the ring in place (lightweight, no behavior
-    // restart); in any other state the ring is hidden and the value is just
-    // cached for the next idle entry.
+    // Progress sensor: parse + cache on every tracked change, normalized to
+    // the ring's 0-100 scale via the configured progress_min/progress_max
+    // bounds. A percentage change while idle — or while dancing with
+    // progress_show_in_dance on — updates the ring in place (lightweight, no
+    // behavior restart); in any other state the ring is hidden and the value
+    // is just cached for the next idle/dance entry.
     const prevProgress = this._progressPct;
-    this._progressPct = parseProgress(newProgressState);
-    if (this._state === 'idle' && this._progressPct !== prevProgress) {
+    this._progressPct = parseProgress(newProgressState, this.config.progress_min, this.config.progress_max);
+    const ringLive = this._state === 'idle'
+      || (this._state === 'dancing' && this.config.progress_show_in_dance !== false);
+    if (ringLive && this._progressPct !== prevProgress) {
       updateProgressRing(this);
     }
 

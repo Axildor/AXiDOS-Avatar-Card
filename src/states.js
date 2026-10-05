@@ -25,7 +25,9 @@ function resetAll(card) {
   stopBop(card);
   a.el.ledMatrices.forEach((m) => m.classList.remove('pulsing'));
   if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '0');
-  // The progress ring is idle-only: every non-idle state hides it.
+  // The progress ring is idle-only by default: every non-idle state hides it.
+  // progress_show_in_dance opts the ring into dance mode (re-rendered below
+  // in the dancing branch); all other non-idle states still hide it.
   if (a.el.progressRing) a.el.progressRing.setAttribute('opacity', '0');
   a.el.eyeLayerIdle.style.opacity = '0';
   a.el.eyeLayerListen.style.opacity = '0';
@@ -65,6 +67,11 @@ export function applyStateVisuals(card, state, bpm) {
     a.el.eyeCenter.style.transition = 'transform 0.1s ease-out, fill 0.8s ease-in-out';
     a.setLEDs('#1DB954', '0.15');
     a.resetBodySwivel();
+    // Optional dance-mode ring: re-render after resetAll() hid it. The ring
+    // is a static SVG overlay — the dance engine never touches it, so no
+    // per-beat writes are needed; the hass setter updates it in place on
+    // percentage changes while dancing.
+    if (card.config.progress_show_in_dance !== false) updateProgressRing(card);
     startDanceCycle(card, bpm);
   } else if (state === 'listening') {
     a.el.eyeLayerListen.style.opacity = '1';
@@ -121,7 +128,11 @@ export function updateProgressRing(card) {
   const pct = card._progressPct;
   const enabled = card.config.progress_ring_enabled !== false
     && card.config.progress_entity
-    && pct !== null && pct !== undefined;
+    && pct !== null && pct !== undefined
+    // 0% renders nothing: a zero-length dash with a round linecap still
+    // paints a small dot/line at the bottom-center start point, so hide the
+    // ring entirely instead of drawing an empty stroke.
+    && pct > 0;
   if (!enabled) {
     ring.setAttribute('opacity', '0');
     return;

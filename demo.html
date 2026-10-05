@@ -347,6 +347,9 @@ function getStubConfig() {
     transparent_bg: false,
     progress_ring_enabled: true,
     progress_vertical_fill: true,
+    progress_show_in_dance: true,
+    progress_min: 0,
+    progress_max: 100,
     progress_dynamic_color: false,
     progress_invert_color: false,
     tap_enabled: true,
@@ -367,8 +370,15 @@ function sanitizeConfig(config) {
   c.progress_entity = typeof c.progress_entity === "string" ? c.progress_entity : "";
   c.progress_ring_enabled = c.progress_ring_enabled !== false;
   c.progress_vertical_fill = c.progress_vertical_fill !== false;
+  c.progress_show_in_dance = c.progress_show_in_dance !== false;
   c.progress_dynamic_color = c.progress_dynamic_color === true;
   c.progress_invert_color = c.progress_invert_color === true;
+  c.progress_min = clampNum(c.progress_min, 0, -1e9, 1e9);
+  c.progress_max = clampNum(c.progress_max, 100, -1e9, 1e9);
+  if (c.progress_min >= c.progress_max) {
+    c.progress_min = 0;
+    c.progress_max = 100;
+  }
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
   c.tap_intensity = clampNum(c.tap_intensity, 1, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
@@ -447,6 +457,28 @@ function buildEditorForm() {
             name: "progress_vertical_fill",
             default: true,
             selector: { boolean: {} }
+          },
+          {
+            name: "progress_show_in_dance",
+            default: true,
+            selector: { boolean: {} }
+          },
+          {
+            type: "grid",
+            name: "",
+            column_min_width: "150px",
+            schema: [
+              {
+                name: "progress_min",
+                default: 0,
+                selector: { number: { min: -1e6, max: 1e6, step: "any" } }
+              },
+              {
+                name: "progress_max",
+                default: 100,
+                selector: { number: { min: -1e6, max: 1e6, step: "any" } }
+              }
+            ]
           },
           {
             name: "progress_dynamic_color",
@@ -547,9 +579,12 @@ function buildEditorForm() {
         entity: "The assist_satellite entity AXiDOS reacts to (required).",
         media_entity: "When this media player plays, AXiDOS dances to the BPM sensor.",
         bpm_entity: "Sensor providing the current song BPM (e.g. SongBPM-26). Defaults to 120.",
-        progress_entity: "Sensor whose state (0-100) fills the socket ring in idle mode. Starts at the bottom, 100% lights the whole socket.",
+        progress_entity: "Sensor whose state fills the socket ring in idle mode. Starts at the bottom, the max value lights the whole socket.",
         progress_ring_enabled: "Show the progress ring around the socket while idle. Disable to keep the plain idle look.",
         progress_vertical_fill: "Fills both sides of the ring from the bottom up (50% = both sides at half height). Off = the original 360\xB0 clockwise sweep from the bottom.",
+        progress_show_in_dance: "Keep the progress ring visible while AXiDOS is dancing. Off = the ring only shows while idle.",
+        progress_min: "Sensor value that maps to 0% (ring empty). Defaults to 0.",
+        progress_max: "Sensor value that maps to 100% (ring full). Defaults to 100. Values outside the range clamp to empty/full.",
         progress_dynamic_color: "Colors the ring by position on the 0-100 scale: green at 0%, yellow mid-scale, red at 100%. Off = the idle pupil shade (amber).",
         progress_invert_color: "Flips the dynamic color direction: red at 0%, green at 100%. Only applies when Dynamic Color is on.",
         respond_delay: "Seconds to wait before switching from Processing to Responding.",
@@ -585,13 +620,16 @@ function parseBpm(rawBpm) {
   const n = parseFloat(rawBpm);
   return isNaN(n) ? 120 : n;
 }
-function parseProgress(raw) {
+function parseProgress(raw, min = 0, max = 100) {
   if (raw === void 0 || raw === null) return null;
   const s = String(raw).trim().toLowerCase();
   if (s === "" || s === "unavailable" || s === "unknown" || s === "none") return null;
   const n = parseFloat(s);
   if (isNaN(n)) return null;
-  return Math.min(100, Math.max(0, n));
+  const lo = Number.isFinite(min) ? min : 0;
+  const hi = Number.isFinite(max) ? max : 100;
+  if (hi <= lo) return Math.min(100, Math.max(0, n));
+  return Math.min(100, Math.max(0, (n - lo) / (hi - lo) * 100));
 }
 function progressColor(pct, dynamic, inverted) {
   if (!dynamic) return "#ffcc00";
@@ -2334,6 +2372,7 @@ function applyStateVisuals(card, state, bpm) {
     a.el.eyeCenter.style.transition = "transform 0.1s ease-out, fill 0.8s ease-in-out";
     a.setLEDs("#1DB954", "0.15");
     a.resetBodySwivel();
+    if (card.config.progress_show_in_dance !== false) updateProgressRing(card);
     startDanceCycle(card, bpm);
   } else if (state === "listening") {
     a.el.eyeLayerListen.style.opacity = "1";
@@ -2381,7 +2420,7 @@ function updateProgressRing(card) {
   const ring = a.el.progressRing;
   if (!ring) return;
   const pct = card._progressPct;
-  const enabled = card.config.progress_ring_enabled !== false && card.config.progress_entity && pct !== null && pct !== void 0;
+  const enabled = card.config.progress_ring_enabled !== false && card.config.progress_entity && pct !== null && pct !== void 0 && pct > 0;
   if (!enabled) {
     ring.setAttribute("opacity", "0");
     return;
@@ -2468,8 +2507,9 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassBpm = newBpmState;
     this._lastHassProgress = newProgressState;
     const prevProgress = this._progressPct;
-    this._progressPct = parseProgress(newProgressState);
-    if (this._state === "idle" && this._progressPct !== prevProgress) {
+    this._progressPct = parseProgress(newProgressState, this.config.progress_min, this.config.progress_max);
+    const ringLive = this._state === "idle" || this._state === "dancing" && this.config.progress_show_in_dance !== false;
+    if (ringLive && this._progressPct !== prevProgress) {
       updateProgressRing(this);
     }
     const currentBpm = parseBpm(newBpmState);
