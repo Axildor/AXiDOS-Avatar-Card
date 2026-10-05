@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.5.0
+
+### Chill-Tier Dance Motion Fix (< 90 BPM)
+
+* **She actually dances at low BPM now** — fixed the chill tier (< 90 BPM) barely moving: the old choreography held each pose for a full 2-beat pair and glided between modest targets every ~1.6 s with no accents, which read as drifting rather than dancing. She now changes her pose **every beat** (full amplitude on the downbeat, a partial return on the off-beat), with ~40% larger amplitudes and shorter glides so each move actually lands.
+* **New accents in the chill tier** — seeded pupil darts on the downbeats, a half-beat "and" syncopation dart, a slightly stronger eye pulse, and two soft hit phrases (*rotation sweep*, *dip bob*) for beat-landing texture. She stays visibly calmer than the groovy tier — the *settle rest* breather phrase is untouched.
+* **Verified** — the dance suite now asserts tier-0 per-beat motion (7/8 phrases change targets on consecutive beats) and an amplitude floor (7/7 phrases reach ≥ 10° tilt or ≥ 18 px bob), alongside all existing contracts.
+
 ## 5.4.2
 
 ### Vertical Fill Symmetry Fix

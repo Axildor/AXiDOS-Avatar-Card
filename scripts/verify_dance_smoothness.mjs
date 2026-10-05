@@ -377,10 +377,11 @@ for (const tier of TIERS_BPM) {
       `A3: punch-recover snaps on the downbeat (${down.durBeats} beats) and recovers long (${off.durBeats} beats) to the SAME pose`);
   }
 
-  // A4. Pupil darts present in tiers 1-3, seeded (deterministic).
+  // A4. Pupil darts present in tiers 0-3, seeded (deterministic). Tier 0 was
+  //     added in 5.5.0 — the chill tier's darts were invisible before.
   {
     let dartsOk = true;
-    for (const tierIdx of [1, 2, 3]) {
+    for (const tierIdx of [0, 1, 2, 3]) {
       const hasDart = TIERS[tierIdx].phrases.some((p) => {
         const idx = TIERS[tierIdx].phrases.indexOf(p);
         const v = phraseVariant(tierIdx, idx, 0);
@@ -391,13 +392,63 @@ for (const tier of TIERS_BPM) {
       });
       if (!hasDart) { dartsOk = false; console.error(`    tier ${tierIdx}: no darting phrase`); }
     }
-    assert(dartsOk, 'A4: pupil darts present in tiers 1-3 (seeded via c.rnd, downbeats)');
+    assert(dartsOk, 'A4: pupil darts present in tiers 0-3 (seeded via c.rnd, downbeats)');
   }
 
   // A5. Strobe phrase exists in tier 3.
   {
     const strobe = TIERS[3].phrases.find((p) => p.strobe === true);
     assert(!!strobe, `A5: tier 3 has a strobe phrase (${strobe ? strobe.name : 'none'})`);
+  }
+
+  // A7. Tier-0 per-beat motion: consecutive beats change lateral targets in
+  //     >= 4 of 8 tier-0 phrases (mirrors A1 — the 5.5.0 "hardly moves" fix;
+  //     the old pair-held poses returned the SAME target for both beats).
+  {
+    const tierIdx = 0;
+    let dynamicCount = 0;
+    for (const p of TIERS[tierIdx].phrases) {
+      const idx = TIERS[tierIdx].phrases.indexOf(p);
+      let dynamic = false;
+      for (let b = 0; b + 1 < 16; b++) {
+        const v = phraseVariant(tierIdx, idx, 0);
+        const m1 = getBeatPose(tierIdx, idx, b, v, b);
+        const m2 = getBeatPose(tierIdx, idx, b + 1, v, b + 1);
+        if (Math.abs(m1.r - m2.r) > 0.5 || Math.abs(m1.tx - m2.tx) > 0.5
+          || Math.abs(m1.ty - m2.ty) > 0.5) { dynamic = true; break; }
+      }
+      if (dynamic) dynamicCount++;
+    }
+    assert(dynamicCount >= 4, `A7: ${dynamicCount}/8 tier-0 phrases change pose targets on consecutive beats (need >= 4)`);
+  }
+
+  // A8. Tier-0 amplitude floor: most phrases reach a visible amplitude
+  //     (|r| >= 10 deg or |ty| >= 18 px on some beat) — the chill tier must
+  //     still MOVE, not just drift. settle-rest is exempt (the breather).
+  //     The floor is compared against the DESIGNED amplitude: the pose is
+  //     divided out by the variant jitter (0.9-1.1, harmless) so a phrase
+  //     whose qualifying beat sits exactly at the floor doesn't fail just
+  //     because its seeded jitter happened to be < 1.
+  {
+    const tierIdx = 0;
+    let strongCount = 0;
+    const exempt = new Set(['settle-rest']);
+    for (const p of TIERS[tierIdx].phrases) {
+      if (exempt.has(p.name)) continue;
+      const idx = TIERS[tierIdx].phrases.indexOf(p);
+      const v = phraseVariant(tierIdx, idx, 0);
+      let strong = false;
+      for (let b = 0; b < 16; b++) {
+        const m = getBeatPose(tierIdx, idx, b, v, b);
+        const r = Math.abs(m.r) / v.jitter;
+        const ty = Math.abs(m.ty) / v.jitter;
+        if (r >= 10 || ty >= 18) { strong = true; break; }
+      }
+      if (strong) strongCount++;
+    }
+    const eligible = TIERS[tierIdx].phrases.length - exempt.size;
+    assert(strongCount >= eligible - 1,
+      `A8: ${strongCount}/${eligible} tier-0 phrases reach |r|>=10deg or |ty|>=18px (need >= ${eligible - 1})`);
   }
 
   // A6. Decoupled channels: at least one phrase per tier moves tx

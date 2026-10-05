@@ -35,7 +35,7 @@ Her movement is built from composable layers, the same way a real puppeteer work
 * **Breathing** — her bellows compresses on the downbeat dip and releases on the rise — she breathes *with* the beat.
 
 Her personality shifts depending on the speed of the music:
-* **Chill & Soulful (< 90 BPM):** Fluid, heavily relaxed glides — *pendulum sway*, *crane sweep*, *slow loom* — with heavy eyelids.
+* **Chill & Soulful (< 90 BPM):** Relaxed but clearly moving — per-beat sways and bobs (*quad tilt*, *vertical bob*, *sway bob*, *slow arc*) with soft beat-landing hits, downbeat pupil darts, and heavy eyelids. Calmer than the groovy tier, never static.
 * **Groovy & Pop (90 - 124 BPM):** Confident and bouncy — *metronome rock*, *dip & nod*, *swivel groove*, and a *bounce build* that grows into the chorus.
 * **Upbeat & Club (125 - 159 BPM):** Sharp, high-energy snaps — *dip & loom*, *snap swivel*, *pendulum pump*, and a *peak stomp* for the drop.
 * **Intense & Hardcore (160+ BPM):** Aggressive mechanical assault — *violent pendulum*, *servo stutter* (quantized glitch-groove), *loom assault*, and *stomp cycle*.

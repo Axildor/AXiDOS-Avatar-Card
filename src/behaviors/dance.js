@@ -63,7 +63,7 @@ export function startDanceCycle(card, bpm) {
   let expectedNextTick = performance.now() + beatMs;
 
   const tierIdx = tierForBpm(currentBpm);
-  const eyeHitScale = [1.06, 1.1, 1.18, 1.25][tierIdx];   // tier-scaled eye pulse
+  const eyeHitScale = [1.08, 1.1, 1.18, 1.25][tierIdx];   // tier-scaled eye pulse
 
   // ---- In-place BPM retune (hysteresis against sensor jitter) ----
   // A same-tier BPM change retunes the beat clock WITHOUT resetting
@@ -162,11 +162,13 @@ export function startDanceCycle(card, bpm) {
       }
     }, beatMs * 0.3);
 
-    // Syncopation: half-beat "and" pupil accent for tier 1 only — at club/
+    // Syncopation: half-beat "and" pupil accent for tiers 0-1. At club/
     // hardcore tempos the pose hits already fill every beat, and an extra
-    // half-beat timer per beat is main-thread work the tablet can't spare.
+    // half-beat timer per beat is main-thread work the tablet can't spare —
+    // but at chill/groovy tempos the beat is long enough that the accent is
+    // both affordable and needed (tier 0's glides otherwise read as static).
     // Seeded from the global beat counter (no Math.random in the dance loop).
-    if (tierIdx === 1) {
+    if (tierIdx <= 1) {
       const sr = mulberryFrom(hash32(dancePhase + 1));
       a.setTimeout('dance-sync', () => {
         if (card._state !== 'dancing') return;

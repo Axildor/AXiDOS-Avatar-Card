@@ -66,7 +66,9 @@ const ENERGY_MAX = 1.1;
 // face (r=23) leaves a 5.4 px translation budget; these caps keep the dart
 // expressive while the iris edge stays well inside the rim. Enforced in
 // getBeatPose; socketClip in template.js is the geometric backstop.
-const DART_MAX = [3, 6, 6, 9];
+// Tier 0 was raised 3 -> 5 (5.5.0): the chill tier's darts were so small they
+// were invisible, which contributed to the "hardly moves" report.
+const DART_MAX = [5, 6, 6, 9];
 
 /**
  * Energy at a global beat index — a CONTINUOUS curve, not plateaus.
@@ -94,9 +96,10 @@ const hit = (r, tx, ty, s, lid, durBeats, pump, dart) => ({
   r, tx, ty, s, lid, dart: dart || null, flow: false, durBeats, pump,
 });
 
-/** FLOW move: continuous ease-in-out glide. */
-const flow = (r, tx, ty, s, lid, durBeats, pump) => ({
-  r, tx, ty, s, lid, dart: null, flow: true, durBeats, pump,
+/** FLOW move: continuous ease-in-out glide. The optional dart gives a flow
+ *  phrase a seeded pupil accent (tier 0's chill darts ride the glide). */
+const flow = (r, tx, ty, s, lid, durBeats, pump, dart) => ({
+  r, tx, ty, s, lid, dart: dart || null, flow: true, durBeats, pump,
 });
 
 // ---- Phrase library (ported from the legacy card's 32 blocks) ----
@@ -116,77 +119,83 @@ const flow = (r, tx, ty, s, lid, durBeats, pump) => ({
 // translation budget before the iris edge crosses the rim. halo/strobe are
 // phrase-level personality accents read by dance.js.
 //
-// Tier 0 note: the legacy <90 tier skipped off-beats entirely
-// (`if (!isDownBeat) return executeTick()`), so every legacy expression was
-// only ever evaluated on EVEN beats. The port quantizes each pose to its
-// beat PAIR (q = b - b % 2) and returns the same target for both beats with
-// durBeats 2.0 — identical rendering, expressed as one long flow glide.
+// Tier 0 note (5.5.0 REWORK): the legacy <90 tier skipped off-beats entirely
+// (`if (!isDownBeat) return executeTick()`) and the original port preserved
+// that as pair-held 2-beat FLOW glides — which read as "hardly moving" (the
+// head drifted between modest targets every ~1.6 s at 70 BPM with no
+// accents). Deliberate departure from legacy fidelity: tier 0 now alternates
+// its pose EVERY beat (downbeat full amplitude, off-beat a partial return),
+// with ~40% larger amplitudes, shorter glides (1.0-1.4 beats so moves land),
+// a couple of soft HIT phrases for beat-landing texture, and seeded downbeat
+// pupil darts. Still the calmest tier — well below tier 1's per-beat hits.
 
 const TIERS = [
-  // ---- Tier 0: chill (< 90 BPM) — slow pair-held sways, all FLOW ----
+  // ---- Tier 0: chill (< 90 BPM) — per-beat sways, FLOW-dominant ----
   {
     phrases: [
       {
         name: 'quad-tilt', energy: 0.45,
         pose(b, c) {
-          const q = b - (b % 2);
-          const pos = q % 4 === 0 ? 1 : -1;
-          return flow(pos * 8, pos * 5, 2, 1, 0.4, 2.0, c.isDown ? 2 : 0);
+          const pos = b % 4 < 2 ? 1 : -1;
+          const amp = c.isDown ? 11 : 5;
+          return flow(pos * amp, pos * amp * 0.5, 2, 1, 0.4, 1.2, c.isDown ? 2 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null);
         },
       },
       {
         name: 'vertical-bob', energy: 0.4,
         pose(b, c) {
-          const q = b - (b % 2);
-          return flow(0, 0, q % 4 === 0 ? 15 : -5, 1, 0.4, 2.0, c.isDown ? 3 : 0);
+          return flow(0, 0, c.isDown ? 20 : -6, 1, 0.4, 1.2, c.isDown ? 3 : 0);
         },
       },
       {
         name: 'sway-bob', energy: 0.5,
-        // ADAPTED (intent-restored): legacy r = sin(phase*PI/2)*6 evaluated
-        // only on even beats is identically 0 — the lateral sway never
-        // rendered. Restored as a pure sway (r = 0, tx on the sine) so tier 0
-        // has its body-shift phrase; see the tier-3 asymmetry note below.
+        // Pure sway (r = 0, tx on the sine) — tier 0's body-shift phrase and
+        // the A2 decoupled-channel contract holder. Sampled per BEAT now
+        // (was per pair), so the sway actually travels.
         pose(b, c) {
-          const q = b - (b % 2);
-          return flow(0, Math.sin(q * Math.PI / 4) * 5,
-            Math.cos(q * Math.PI / 4) * 8 + 4, 1, 0.4, 2.0, c.isDown ? 2 : 0);
+          return flow(0, Math.sin(b * Math.PI / 4) * 8,
+            Math.cos(b * Math.PI / 4) * 14 + 4, 1, 0.4, 1.2, c.isDown ? 2 : 0);
         },
       },
       {
         name: 'slow-arc', energy: 0.5,
         pose(b, c) {
-          const q = b - (b % 2);
-          const pos = q % 8 < 4 ? 1 : -1;
-          return flow(pos * 10, pos * 4, 5, 1, 0.4, 2.0, c.isDown ? 2 : 0);
+          const pos = b % 8 < 4 ? 1 : -1;
+          const amp = c.isDown ? 12 : 6;
+          return flow(pos * amp, pos * amp * 0.4, 5, 1, 0.4, 1.2, c.isDown ? 2 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null);
         },
       },
       {
         name: 'rotation-sweep', energy: 0.55,
+        // Soft HIT: the sweep lands on each beat instead of drifting through
+        // it (0.9-beat snap with the offbeat ease-out).
         pose(b, c) {
-          const q = b - (b % 2);
-          return flow(Math.sin(q * Math.PI / 4) * 12, 0, 0, 1, 0.4, 2.0, c.isDown ? 2 : 0);
+          return hit(Math.sin(b * Math.PI / 4) * 12, 0, 0, 1, 0.4, 0.9, c.isDown ? 2 : 0);
         },
       },
       {
         name: 'dip-bob', energy: 0.45,
         pose(b, c) {
-          const q = b - (b % 2);
-          const up = q % 4 === 0;
-          return flow(up ? 4 : -4, 0, up ? 12 : 2, up ? 1.03 : 1.0, 0.4, 2.0, c.isDown ? 3 : 0);
+          const up = c.isDown;
+          return hit(up ? 5 : -5, 0, up ? 18 : 2, up ? 1.04 : 1.0, 0.4,
+            up ? 0.9 : 1.2, up ? 3 : 0);
         },
       },
       {
         name: 'accent-nod', energy: 0.5,
         pose(b, c) {
-          const q = b - (b % 2);
-          const m8 = q % 8;
+          const m8 = b % 8;
           const r = m8 === 0 ? 12 : (m8 === 4 ? -6 : 0);
-          return flow(r, r * 0.5, 8, 1, 0.4, 2.0, c.isDown ? 3 : 0);
+          return flow(r, r * 0.5, c.isDown ? 10 : 4, 1, 0.4, 1.2, c.isDown ? 3 : 0,
+            c.isDown ? [(c.rnd() - 0.5) * 8, (c.rnd() - 0.5) * 6] : null);
         },
       },
       {
         name: 'settle-rest', energy: 0.2, halo: 0.8,
+        // The breather — kept slow and small on purpose (personality law:
+        // even the wildest tier needs a rest phrase).
         pose(b, c) {
           return flow(0, 0, 2, 1.05, 0.5, 2.0, c.isDown ? 1 : 0);
         },
