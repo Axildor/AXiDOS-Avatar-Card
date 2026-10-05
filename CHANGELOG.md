@@ -2,23 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
-## 5.6.0
+## 5.5.0
+
+### Dance Motion Fixes
+
+* **She actually dances at low BPM now** — fixed the chill tier (< 90 BPM) barely moving: the old choreography held each pose for a full 2-beat pair and glided between modest targets every ~1.6 s with no accents, which read as drifting rather than dancing. She now changes her pose **every beat** (full amplitude on the downbeat, a partial return on the off-beat), with ~40% larger amplitudes and shorter glides so each move actually lands.
+* **New accents in the chill tier** — seeded pupil darts on the downbeats, a half-beat "and" syncopation dart, a slightly stronger eye pulse, and two soft hit phrases (*rotation sweep*, *dip bob*) for beat-landing texture. She stays visibly calmer than the groovy tier — the *settle rest* breather phrase is untouched.
+* **Smoother dancing at high BPM** — fixed a per-beat transition-retargeting stall that dropped frame rate at club/hardcore tempos (the "skips a beat and tries to catch up" feel): the torso swivel's 3-beat transition was re-issued every beat (always interrupted at ~1/3 travel, forcing a synchronous transform read per beat), and the bellows recovery could outlive the remaining beat time. At 125+ BPM the swivel now settles within ~1 beat and the bellows recovery is capped relative to the beat length; below 125 BPM the motion is pixel-identical to before.
 
 ### Progress Ring: Dance Mode + Configurable Bounds
 
 * **Progress ring while dancing** — the ring no longer disappears the moment the music starts. A new **Show While Dancing** toggle (default **on**) keeps the progress ring visible around the socket during dance mode, updating live with the sensor. Turn it off to restore the idle-only ring.
 * **Configurable bounds** — the ring no longer assumes a 0–100 percentage sensor. New **Min Value** and **Max Value** options map any sensor range onto the ring: the sensor's `min` value renders an empty ring, `max` renders it full, and values in between scale linearly (e.g. min 20 / max 80 makes 50 read as 50%). Defaults keep the legacy 0–100 behavior; values outside the range clamp to empty/full.
 * **Clean 0%** — at 0% the ring is now hidden entirely. Previously a zero-length dash still painted a small colored line at the bottom of the socket; now an empty (or below-minimum) sensor shows nothing at all.
-* **Verified** — new `verify_progress_bounds.mjs` suite (35 checks) covers the bounds normalization math, the 0%-hidden contract, and the dance-mode visibility toggle; all existing suites remain green.
 
-## 5.5.0
+### Stuck-Responding State Fix
 
-### Chill-Tier Dance Motion Fix (< 90 BPM)
-
-* **She actually dances at low BPM now** — fixed the chill tier (< 90 BPM) barely moving: the old choreography held each pose for a full 2-beat pair and glided between modest targets every ~1.6 s with no accents, which read as drifting rather than dancing. She now changes her pose **every beat** (full amplitude on the downbeat, a partial return on the off-beat), with ~40% larger amplitudes and shorter glides so each move actually lands.
-* **New accents in the chill tier** — seeded pupil darts on the downbeats, a half-beat "and" syncopation dart, a slightly stronger eye pulse, and two soft hit phrases (*rotation sweep*, *dip bob*) for beat-landing texture. She stays visibly calmer than the groovy tier — the *settle rest* breather phrase is untouched.
-* **Verified** — the dance suite now asserts tier-0 per-beat motion (7/8 phrases change targets on consecutive beats) and an amplitude floor (7/7 phrases reach ≥ 10° tilt or ≥ 18 px bob), alongside all existing contracts.
-* **Smoother dancing at high BPM** — fixed a per-beat transition-retargeting stall that dropped frame rate on Android tablets at club/hardcore tempos: the torso swivel's 3-beat transition was re-issued every beat (always interrupted at ~1/3 travel, forcing a synchronous transform read per beat), and the bellows recovery could outlive the remaining beat time. At 125+ BPM the swivel now settles within ~1 beat and the bellows recovery is capped relative to the beat length; below 125 BPM the motion is pixel-identical to before.
+* **No more frozen "responding" state** — fixed a bug where the avatar could get stuck in its responding (red, talking) visuals until the page was refreshed. Two related defects: (1) if a state update failed mid-apply, the card's internal bookkeeping said "everything is up to date" while the visuals were stale, so every future update was skipped; (2) with **Response Delay** configured, a pending delayed transition could fire even after the assistant had already moved on. The card now detects any desync on the next update and re-applies the correct state automatically — no refresh needed.
+* **Self-healing updates** — every state delivery now verifies the applied animation state matches the entity state; a mismatch re-applies the state instead of being silently skipped. Animation failures are caught and retried on the next update instead of corrupting the pipeline.
+* **Response Delay cleanup** — a pending delayed transition is now cancelled as soon as the entity leaves the responding state.
+* **Re-attach safety** — when Home Assistant detaches and re-attaches the card (sections view, lazy loading, edit mode), the state caches are reset so the card re-evaluates the current entity states instead of trusting stale ones.
 
 ## 5.4.2
 

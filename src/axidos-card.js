@@ -8,7 +8,7 @@
 
 import { sanitizeConfig, getStubConfig } from './config.js';
 import { buildEditorForm } from './editor.js';
-import { resolveState, parseBpm, parseProgress } from './state-mapper.js';
+import { applyHassUpdate } from './hass-update.js';
 import { buildTemplate } from './template.js';
 import { AxidosAnimator } from './animator.js';
 import { applyState, updateProgressRing } from './states.js';
@@ -51,61 +51,12 @@ export class AxidosCard extends HTMLElement {
     }
   }
 
+  // The full delivery pipeline (firehose gate, self-healing sync check,
+  // progress parsing, state application with exception protection) lives in
+  // hass-update.js — extracted so the verify suites can drive real deliveries
+  // through the exact production code path.
   set hass(hass) {
-    if (!hass) return;
-    this._hass = hass;
-    if (!this.contentReady) {
-      this.setupDOM();
-      this.initAxidos();
-      this.contentReady = true;
-    }
-    const entity = this.config.entity;
-    const mediaEntity = this.config.media_entity;
-    const bpmEntity = this.config.bpm_entity;
-    const progressEntity = this.config.progress_entity;
-    const newVoiceState = (entity && hass.states[entity]) ? hass.states[entity].state.toLowerCase() : 'idle';
-    const newMediaState = (mediaEntity && hass.states[mediaEntity]) ? hass.states[mediaEntity].state.toLowerCase() : 'paused';
-    const newBpmState = (bpmEntity && hass.states[bpmEntity]) ? hass.states[bpmEntity].state : '120';
-    const newProgressState = (progressEntity && hass.states[progressEntity]) ? hass.states[progressEntity].state : null;
-
-    // Firehose gatekeeping: only react when a tracked entity actually changed
-    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState && this._lastHassProgress === newProgressState) return;
-
-    this._lastHassVoice = newVoiceState;
-    this._lastHassMedia = newMediaState;
-    this._lastHassBpm = newBpmState;
-    this._lastHassProgress = newProgressState;
-
-    // Progress sensor: parse + cache on every tracked change, normalized to
-    // the ring's 0-100 scale via the configured progress_min/progress_max
-    // bounds. A percentage change while idle — or while dancing with
-    // progress_show_in_dance on — updates the ring in place (lightweight, no
-    // behavior restart); in any other state the ring is hidden and the value
-    // is just cached for the next idle/dance entry.
-    const prevProgress = this._progressPct;
-    this._progressPct = parseProgress(newProgressState, this.config.progress_min, this.config.progress_max);
-    const ringLive = this._state === 'idle'
-      || (this._state === 'dancing' && this.config.progress_show_in_dance !== false);
-    if (ringLive && this._progressPct !== prevProgress) {
-      updateProgressRing(this);
-    }
-
-    const currentBpm = parseBpm(newBpmState);
-    const mapped = resolveState(newVoiceState, newMediaState);
-
-    if (this._state !== mapped) {
-      this._currentBpm = currentBpm;
-      applyState(this, mapped, currentBpm);
-    } else if (mapped === 'dancing' && this._currentBpm !== currentBpm) {
-      // BPM hysteresis: a same-tier BPM change retunes the beat clock IN
-      // PLACE (dancePhase/phraseId/phraseCount preserved — no visible
-      // restart, so sensor jitter cannot flicker the choreography). A
-      // cross-tier change (crossing 90/125/160 BPM) swaps the phrase
-      // library, which requires a full restart.
-      this._currentBpm = currentBpm;
-      const retuned = typeof this._retuneDance === 'function' && this._retuneDance(currentBpm);
-      if (!retuned) applyState(this, mapped, currentBpm);
-    }
+    applyHassUpdate(this, hass);
   }
 
   getCardSize() {
@@ -142,6 +93,15 @@ export class AxidosCard extends HTMLElement {
     if (this._boundVisibility) {
       document.addEventListener('visibilitychange', this._boundVisibility);
     }
+    // Reset the raw-state caches: HA's renderer (sections, lazy load, edit
+    // mode) detaches and re-attaches card elements without recreating them.
+    // Stale caches from before the detach would gate the next hass delivery
+    // via the firehose check — clearing them forces a full re-evaluation of
+    // the current entity states on the next set hass() call.
+    this._lastHassVoice = null;
+    this._lastHassMedia = null;
+    this._lastHassBpm = null;
+    this._lastHassProgress = null;
     if (this.contentReady) {
       // Re-attach tap/keyboard handlers: HA's renderer (sections, lazy load,
       // edit mode) detaches and re-attaches card elements without recreating

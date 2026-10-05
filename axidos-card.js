@@ -327,436 +327,6 @@ function verticalProgressDash(pct) {
   return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)}`;
 }
 
-// src/template.js
-function buildTemplate(config) {
-  const zoom = config.zoom !== void 0 ? config.zoom : 85;
-  const scale = zoom / 100;
-  const width = 280 * scale;
-  const height = 320 * scale;
-  const bgStyle = config.transparent_bg ? "background: transparent; box-shadow: none; border: none;" : "background: var(--ha-card-background, var(--card-background-color, #1c1c1c));";
-  return `
-    <style>
-      :host { display: flex; align-items: center; justify-content: center; ${bgStyle} border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; width: 100%; }
-      /* contain: layout paint \u2014 repaints inside the card never invalidate the
-         dashboard around it (and vice versa) on weak tablet GPUs. */
-      /* flex: none \u2014 the scene keeps its exact zoomed px size; a flex item
-         would otherwise shrink back to the slot width at zoom > 100, and the
-         SVG's preserveAspectRatio would pin the model at ~100%. getGridOptions()
-         grows the slot (rows AND columns) to match. */
-      #scene { position: relative; flex: none; width: ${width}px; height: ${height}px; display: flex; align-items: center; justify-content: center; contain: layout paint; }
-
-      #hitbox { position: absolute; inset: 0; z-index: 100; cursor: pointer; display: none; }
-      /* isolation: isolate \u2014 the SVG forms its own stacking context so its
-         compositor layers don't interleave with the rest of the dashboard. */
-      #axidos-svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; isolation: isolate; --led-color: #ffb800; --led-opacity: 0.15; }
-
-      /* ---- Compositor-layer promotion ----
-         Every group animated via transform gets will-change: transform so the
-         browser hoists it to its own GPU layer: per-frame transform writes
-         (RAF spring loop, CSS transitions) then composite on the GPU instead
-         of triggering main-thread SVG repaints. Applied ONLY to groups that
-         actually animate \u2014 each hint costs GPU memory. Includes the ambient
-         sway pivots (#body-pivot, #head-sway-pivot): their infinite CSS
-         keyframe rotations repaint the whole subtree every frame unless
-         promoted. */
-      #axidos-head, #head-bop, #torso-swivel, #bellows,
-      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center,
-      #body-pivot, #head-sway-pivot {
-        will-change: transform;
-      }
-      /* Rotation/scale groups need view-box coordinates for transform-origin. */
-      #axidos-head, #head-bop, #torso-swivel, #eye-center,
-      #body-pivot, #head-sway-pivot { transform-box: view-box; }
-      /* Bop layer: dedicated transform group for the tap-bop spring so it
-         composes additively with the head poses (#axidos-head) instead of
-         fighting over one transform. Pivots at the neck like #axidos-head. */
-      #head-bop { transform-origin: 140px 285px; }
-
-      .led-dot, #ind-l1, #ind-l2, #ind-r1, #ind-r2 { transition: opacity 0.15s ease-out; fill: var(--led-color); opacity: var(--led-opacity); }
-      .led-matrix.pulsing .led-dot { animation: led-pulse 0.9s ease-in-out infinite; }
-      @keyframes led-pulse { 0%,100% { opacity: var(--led-opacity); } 50% { opacity: calc(var(--led-opacity) * 0.3); } }
-
-      #body-pivot { transform-origin: 140px 116px; animation: body-sway 8s ease-in-out infinite; }
-      @keyframes body-sway { 0%, 100% { transform: rotate(-1.4deg); } 50% { transform: rotate( 1.4deg); } }
-
-      #head-sway-pivot { transform-origin: 140px 285px; animation: head-ambient-sway 13s ease-in-out infinite; }
-      @keyframes head-ambient-sway { 0%, 100% { transform: rotate(-0.8deg); } 50% { transform: rotate(0.8deg); } }
-
-      #torso-swivel { transform-origin: 140px 116px; transition: transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95); }
-      #axidos-head { transform-box: view-box; transform-origin: 140px 285px; transition: transform 1.6s cubic-bezier(0.34, 1.06, 0.64, 1); }
-
-      #eye-halo { transition: fill 0.8s ease-in-out; }
-      /* Eye pulse: the dance engine scales #eye-center every beat; a short
-         transform transition turns that write into an organic pulse instead
-         of a snap. Kept short so the pulse still lands on the beat. */
-      #eye-center { transition: fill 0.8s ease-in-out, transform 0.18s ease-out; }
-      .eye-layer { transition: opacity 0.8s ease-in-out; }
-      @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
-      #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
-      @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
-      #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
-
-      /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
-         length IS the percentage). Smooth transitions turn sensor jumps into
-         a glide; opacity gates visibility to the idle state. */
-      #progress-ring {
-        transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
-      }
-    </style>
-    <div id="scene">
-      <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
-      <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-        <defs>
-          <linearGradient id="ceramicGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8a8d94"/><stop offset="8%" stop-color="#b0b4bc"/><stop offset="8.5%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffffff"/><stop offset="75%" stop-color="#ffffff"/><stop offset="91.5%" stop-color="#e8eaec"/><stop offset="92%" stop-color="#a0a4ac"/><stop offset="100%" stop-color="#6a6d75"/></linearGradient>
-          <linearGradient id="ceramicBackgroundGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a4d54"/><stop offset="8%" stop-color="#70747c"/><stop offset="8.5%" stop-color="#b0b4bc"/><stop offset="25%" stop-color="#b0b4bc"/><stop offset="75%" stop-color="#b0b4bc"/><stop offset="91.5%" stop-color="#a0a4ac"/><stop offset="92%" stop-color="#6a6d75"/><stop offset="100%" stop-color="#3a3d44"/></linearGradient>
-          <linearGradient id="ceramicShadow" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity="0"/><stop offset="60%" stop-color="#60646c" stop-opacity="0.1"/><stop offset="85%" stop-color="#2a2c32" stop-opacity="0.5"/><stop offset="100%" stop-color="#0a0a0f" stop-opacity="0.85"/></linearGradient>
-          <linearGradient id="bezelGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a4d54"/><stop offset="20%" stop-color="#6a6d75"/><stop offset="50%" stop-color="#3a3c42"/><stop offset="80%" stop-color="#1a1c20"/><stop offset="100%" stop-color="#0a0a0c"/></linearGradient>
-          <linearGradient id="cavityGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#181a1c"/><stop offset="100%" stop-color="#30353a"/></linearGradient>
-          <linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#1a1c20"/><stop offset="50%" stop-color="#3a3e46"/><stop offset="100%" stop-color="#121316"/></linearGradient>
-          <radialGradient id="eyeGradIdle" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#ffcc00"/><stop offset="55%" stop-color="#d95500"/><stop offset="80%" stop-color="#7a1100"/><stop offset="100%" stop-color="#110000"/></radialGradient>
-          <radialGradient id="eyeGradListen" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#aaffff"/><stop offset="60%" stop-color="#00ccff"/><stop offset="85%" stop-color="#0066aa"/><stop offset="100%" stop-color="#001a33"/></radialGradient>
-          <radialGradient id="eyeGradProcess" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffddaa"/><stop offset="60%" stop-color="#ff6600"/><stop offset="85%" stop-color="#aa3300"/><stop offset="100%" stop-color="#220a00"/></radialGradient>
-          <radialGradient id="eyeGradRespond" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffaaaa"/><stop offset="60%" stop-color="#ff2200"/><stop offset="85%" stop-color="#aa0000"/><stop offset="100%" stop-color="#220000"/></radialGradient>
-          <radialGradient id="eyeGradDance" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#aaffaa"/><stop offset="55%" stop-color="#1DB954"/><stop offset="80%" stop-color="#0a5926"/><stop offset="100%" stop-color="#001a00"/></radialGradient>
-          <!-- No SVG filters remain: feGaussianBlur re-rasterizes on every
-               transform write and defeats compositor-layer promotion on
-               Android WebView. The faceplate inset's soft fringe is faked
-               with stepped rects (see Group_Faceplate_Inset); the eye glow
-               uses the pre-blurred radial gradient below. -->
-          <!-- Fake glow: pre-blurred radial gradient, rasterized once and
-               cached as a texture. Used on the eye layers + indicator dot. -->
-          <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-            <stop offset="45%" stop-color="#ffffff" stop-opacity="0.35"/>
-            <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-          </radialGradient>
-          <radialGradient id="haloGradIdle"><stop offset="0%" stop-color="#330800" stop-opacity="1"/><stop offset="60%" stop-color="#330800" stop-opacity="0.4"/><stop offset="100%" stop-color="#330800" stop-opacity="0"/></radialGradient>
-          <radialGradient id="haloGradDance"><stop offset="0%" stop-color="#1DB954" stop-opacity="1"/><stop offset="60%" stop-color="#1DB954" stop-opacity="0.4"/><stop offset="100%" stop-color="#1DB954" stop-opacity="0"/></radialGradient>
-          <radialGradient id="haloGradListen"><stop offset="0%" stop-color="#00ccff" stop-opacity="1"/><stop offset="60%" stop-color="#00ccff" stop-opacity="0.4"/><stop offset="100%" stop-color="#00ccff" stop-opacity="0"/></radialGradient>
-          <radialGradient id="haloGradProcess"><stop offset="0%" stop-color="#ff6600" stop-opacity="1"/><stop offset="60%" stop-color="#ff6600" stop-opacity="0.4"/><stop offset="100%" stop-color="#ff6600" stop-opacity="0"/></radialGradient>
-          <radialGradient id="haloGradRespond"><stop offset="0%" stop-color="#ff2200" stop-opacity="1"/><stop offset="60%" stop-color="#ff2200" stop-opacity="0.4"/><stop offset="100%" stop-color="#ff2200" stop-opacity="0"/></radialGradient>
-          <linearGradient id="lidGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f2124"/><stop offset="100%" stop-color="#08090a"/></linearGradient>
-          <linearGradient id="lidGradFlip" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#1f2124"/><stop offset="100%" stop-color="#08090a"/></linearGradient>
-          <clipPath id="cavityClip"><rect x="97" y="283.25" width="66" height="161.5" rx="33"/></clipPath>
-          <clipPath id="trackClip"><rect x="107" y="293.25" width="46" height="141.5" rx="23"/></clipPath>
-          <clipPath id="eyeballClip"><circle cx="130" cy="364" r="25.5"/></clipPath>
-          <!-- socketClip: hard geometric bound for the pupil. The iris
-               (r=17.6) sits inside the socket face (r=23), leaving only a
-               5.4 px translation budget \u2014 dance darts can request more.
-               Applied to a STATIC wrapper group (not #eye-pupil itself) so
-               the clip does not translate with the pupil it clips. -->
-          <clipPath id="socketClip"><circle cx="130" cy="364" r="23"/></clipPath>
-        </defs>
-        <g id="body-pivot">
-          <g id="torso-swivel">
-            <g id="torso" transform="matrix(1.2,0,0,1.2,-28,-23.2)">
-              <ellipse cx="140" cy="116" rx="55" ry="15" fill="#1c1c26" stroke="#0c0c12" stroke-width="1.2"/>
-              <ellipse cx="140" cy="116" rx="46" ry="11" fill="#141420" stroke="#1e1e2c" stroke-width="0.7"/>
-              <path d="m 94,126 -8,8 -2,66 q 0,10 10,12 h 92 q 10,-2 10,-12 l -2,-66 -8,-8 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1.4"/>
-              <path d="m 90,132 -28,8 -4,40 4,16 12,4 16,-4 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1"/>
-              <path d="m 90,136 -24,7 -4,35 4,14 10,4 14,-4 z" fill="#eeeeee" opacity="0.05"/>
-              <circle cx="60" cy="168" r="9" fill="#14141c" stroke="#0c0c12" stroke-width="1"/>
-              <circle cx="60" cy="168" r="5.5" fill="#0c0c10" stroke="#1a1a22" stroke-width="0.8"/>
-              <path d="m 90,132 c -4,20 -6,40 -4,60" stroke="#1a1a22" stroke-width="2.5" fill="none" opacity="0.8"/>
-              <path d="m 190,132 28,8 4,40 -4,16 -12,4 -16,-4 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1"/>
-              <path d="m 190,136 24,7 4,35 -4,14 10,4 14,-4 z" fill="#eeeeee" opacity="0.05"/>
-              <circle cx="220" cy="168" r="9" fill="#14141c" stroke="#0c0c12" stroke-width="1"/>
-              <circle cx="220" cy="168" r="5.5" fill="#0c0c10" stroke="#1a1a22" stroke-width="0.8"/>
-              <path d="m 190,132 c 4,20 6,40 4,60" stroke="#1a1a22" stroke-width="2.5" fill="none" opacity="0.8"/>
-              <line x1="90" y1="152" x2="190" y2="152" stroke="#6a6d75" stroke-width="1"/>
-              <line x1="89" y1="174" x2="191" y2="174" stroke="#6a6d75" stroke-width="1"/>
-              <line x1="140" y1="128" x2="140" y2="210" stroke="#6a6d75" stroke-width="1"/>
-              <rect x="94" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
-              <rect x="96" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
-              <g id="led-matrix-left" class="led-matrix">
-                <rect class="led-dot" x="98" y="140" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="98" y="145" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="98" y="150" width="28" height="2" rx="1"/>
-              </g>
-              <rect x="150" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
-              <rect x="152" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
-              <g id="led-matrix-right" class="led-matrix">
-                <rect class="led-dot" x="154" y="140" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="154" y="145" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="154" y="150" width="28" height="2" rx="1"/>
-              </g>
-              <circle cx="100" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-l1" cx="100" cy="180" r="1.5"/>
-              <circle cx="108" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-l2" cx="108" cy="180" r="1.5"/>
-              <circle cx="172" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-r1" cx="172" cy="180" r="1.5"/>
-              <circle cx="180" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-r2" cx="180" cy="180" r="1.5"/>
-            </g>
-          </g>
-        </g>
-        <g id="axidos-head-wrapper" transform="translate(0, -65)">
-          <g id="head-sway-pivot">
-            <g id="axidos-head">
-              <g id="head-bop">
-              <ellipse cx="140" cy="285" rx="18" ry="6" fill="#181824" stroke="#0a0a0f" stroke-width="1"/>
-              <ellipse cx="140" cy="285" rx="12" ry="3.8" fill="#101015" stroke="#181824" stroke-width="0.6"/>
-              <g id="Group_White_Casing">
-                <path id="rect74" fill="url(#ceramicGrad)" d="m 135,232 h 10 c 20.41692,0 38.38909,10.09589 49.21698,25.58812 L 205,276.8 c 0,0 2.4,52.45447 2.4,78.7 0,26.24553 -2.4,78.7 -2.4,78.7 l -10.77334,19.19803 C 183.3998,468.8981 165.423,479 145,479 H 135 C 114.59769,479 96.636634,468.91856 85.806278,453.44514 L 75,434.2 c 0,0 -2.4,-52.45447 -2.4,-78.7 0,-26.24553 2.4,-78.7 2.4,-78.7 L 85.808333,257.55193 C 96.638906,242.08017 114.59898,232 135,232 Z"/>
-                <rect x="75" y="232" width="130" height="247" rx="60" fill="url(#ceramicShadow)"/>
-              </g>
-              <g id="Group_Faceplate_Inset">
-                <!-- Stepped fake of the old 2px blur filter: two expanded
-                     black rects beneath the base rect approximate the blur's
-                     soft dark fringe without an SVG filter (zero re-raster
-                     cost). Static \u2014 rasterized once. -->
-                <rect x="91" y="277.25" width="80" height="175.5" rx="40" fill="#000" opacity="0.12"/>
-                <rect x="92" y="278.25" width="78" height="173.5" rx="39" fill="#000" opacity="0.30"/>
-                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6"/>
-                <rect x="91" y="277.25" width="78" height="173.5" rx="39" fill="url(#bezelGrad)" stroke="#1a1c22" stroke-width="1"/>
-                <rect x="93" y="279.25" width="74" height="169.5" rx="37" fill="none" stroke="#6a6d75" stroke-width="1.5"/>
-                <g clip-path="url(#cavityClip)">
-                  <rect x="97" y="283.25" width="66" height="161.5" rx="33" fill="url(#cavityGrad)"/>
-                  <rect x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#050607" stroke-width="5" opacity="0.9"/>
-                  <rect x="107" y="293.25" width="46" height="141.5" rx="23" fill="url(#trackGrad)" stroke="#000000" stroke-width="3"/>
-                  <g clip-path="url(#trackClip)">
-                    <g id="bellows" style="transition: transform 0.15s ease-out;">
-                      <g stroke="#000" stroke-width="4.5" stroke-linecap="butt" opacity="0.9">
-                        <line x1="107" y1="140" x2="153" y2="140"/><line x1="107" y1="152" x2="153" y2="152"/><line x1="107" y1="164" x2="153" y2="164"/><line x1="107" y1="176" x2="153" y2="176"/><line x1="107" y1="188" x2="153" y2="188"/><line x1="107" y1="200" x2="153" y2="200"/><line x1="107" y1="212" x2="153" y2="212"/><line x1="107" y1="224" x2="153" y2="224"/><line x1="107" y1="236" x2="153" y2="236"/><line x1="107" y1="248" x2="153" y2="248"/><line x1="107" y1="260" x2="153" y2="260"/><line x1="107" y1="272" x2="153" y2="272"/><line x1="107" y1="284" x2="153" y2="284"/><line x1="107" y1="296" x2="153" y2="296"/><line x1="107" y1="308" x2="153" y2="308"/><line x1="107" y1="320" x2="153" y2="320"/><line x1="107" y1="332" x2="153" y2="332"/><line x1="107" y1="344" x2="153" y2="344"/><line x1="107" y1="356" x2="153" y2="356"/><line x1="107" y1="368" x2="153" y2="368"/><line x1="107" y1="380" x2="153" y2="380"/><line x1="107" y1="392" x2="153" y2="392"/><line x1="107" y1="404" x2="153" y2="404"/><line x1="107" y1="416" x2="153" y2="416"/><line x1="107" y1="428" x2="153" y2="428"/><line x1="107" y1="440" x2="153" y2="440"/><line x1="107" y1="452" x2="153" y2="452"/><line x1="107" y1="464" x2="153" y2="464"/><line x1="107" y1="476" x2="153" y2="476"/><line x1="107" y1="488" x2="153" y2="488"/><line x1="107" y1="500" x2="153" y2="500"/><line x1="107" y1="512" x2="153" y2="512"/><line x1="107" y1="524" x2="153" y2="524"/>
-                      </g>
-                    </g>
-                  </g>
-                  <g id="eyeball-assembly" style="transition: transform 0.15s ease-out;">
-                    <circle cx="130" cy="364" r="26" fill="#1c1e22" stroke="#000000" stroke-width="2"/>
-                    <circle cx="130" cy="364" r="23" fill="#0a0b0c"/>
-                    <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
-                    <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
-                    <circle id="eye-halo" cx="130" cy="364" r="25" fill="url(#haloGradIdle)" opacity=".05"/>
-                    <!-- Static clip wrapper: socketClip must live on a PARENT
-                         of #eye-pupil \u2014 a clip on the pupil itself would
-                         translate along with it and clip nothing. -->
-                    <g clip-path="url(#socketClip)">
-                      <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
-                      <!-- Pre-blurred glow halo (rasterized once) replaces the
-                           per-frame feGaussianBlur that used to sit on each
-                           eye layer \u2014 visually equivalent soft edge, zero
-                           filter cost while the pupil moves. -->
-                      <circle id="eye-glow" cx="130" cy="364" r="21" fill="url(#glowGrad)" opacity="0.55" pointer-events="none"/>
-                      <circle id="eye-layer-idle" cx="130" cy="364" r="17.6" fill="url(#eyeGradIdle)" class="eye-layer" opacity="1" />
-                      <circle id="eye-layer-listen" cx="130" cy="364" r="17.6" fill="url(#eyeGradListen)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-process" cx="130" cy="364" r="17.6" fill="url(#eyeGradProcess)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-respond" cx="130" cy="364" r="17.6" fill="url(#eyeGradRespond)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
-                      <circle id="eye-center" cx="130" cy="364" r="6.6" fill="#ffe855" />
-                      <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
-                      </g>
-                    </g>
-                    <g clip-path="url(#eyeballClip)">
-                      <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>
-                      <path id="eye-lid-bottom" d="M 80,500 H 180 V 364 h -24 a 26,26 0 0 1 -52,0 H 80 Z" fill="url(#lidGradFlip)" stroke="#000000" stroke-width="2"/>
-                    </g>
-                  </g>
-                </g>
-              </g>
-              <path d="m 92,359 5,2 v 6 l -5,2 z" fill="#050505"/>
-              <path d="m 92,379 5,2 v 8 l -5,2 z" fill="#050505"/>
-              <rect id="danger-ring" x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#ff2200" stroke-width="2" opacity="0"/>
-              <!-- Idle progress ring: same stadium outline as #danger-ring but
-                   as a path starting at BOTTOM-CENTER (130,444.75) running
-                   clockwise (left side first). pathLength=100 normalizes the
-                   geometry so stroke-dasharray "N 100" fills exactly N%.
-                   Separate element from #danger-ring so the responding-state
-                   red flash and the idle progress fill never interact. -->
-              <path id="progress-ring" d="M 130,444.75 A 33,33 0 0 1 97,411.75 L 97,316.25 A 33,33 0 0 1 130,283.25 A 33,33 0 0 1 163,316.25 L 163,411.75 A 33,33 0 0 1 130,444.75 Z" pathLength="100" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 100" opacity="0"/>
-              </g>
-              </g>
-            </g>
-          </g>
-        </g>
-      </svg>
-    </div>
-  `;
-}
-
-// src/animator.js
-var AxidosAnimator = class {
-  constructor(shadowRoot) {
-    const root = shadowRoot;
-    this.el = {
-      svg: root.getElementById("axidos-svg"),
-      head: root.getElementById("axidos-head"),
-      headBop: root.getElementById("head-bop"),
-      torsoSwivel: root.getElementById("torso-swivel"),
-      hitbox: root.getElementById("hitbox"),
-      eyeLayerIdle: root.getElementById("eye-layer-idle"),
-      eyeLayerListen: root.getElementById("eye-layer-listen"),
-      eyeLayerProcess: root.getElementById("eye-layer-process"),
-      eyeLayerRespond: root.getElementById("eye-layer-respond"),
-      eyeLayerDance: root.getElementById("eye-layer-dance"),
-      eyeHalo: root.getElementById("eye-halo"),
-      eyeCenter: root.getElementById("eye-center"),
-      pupil: root.getElementById("eye-pupil"),
-      eyeball: root.getElementById("eyeball-assembly"),
-      bellows: root.getElementById("bellows"),
-      lidTop: root.getElementById("eye-lid"),
-      lidBot: root.getElementById("eye-lid-bottom"),
-      dangerRing: root.getElementById("danger-ring"),
-      progressRing: root.getElementById("progress-ring"),
-      ledMatrices: root.querySelectorAll(".led-matrix")
-    };
-    this.ledVarTargets = [
-      ...root.querySelectorAll(".led-matrix"),
-      root.getElementById("ind-l1"),
-      root.getElementById("ind-l2"),
-      root.getElementById("ind-r1"),
-      root.getElementById("ind-r2")
-    ].filter(Boolean);
-    this._lastLedColor = null;
-    this._lastLedOpacity = null;
-    this.currentBaseLid = 0;
-    this.currentLedColor = "#ffb800";
-    this.currentLedOpacity = "0.15";
-    this._timers = /* @__PURE__ */ new Map();
-    this._rafs = /* @__PURE__ */ new Map();
-  }
-  // ---- Tracked scheduling (the ONLY way behaviors may schedule work) ----
-  setTimeout(name, fn, delay) {
-    this.clearTimeout(name);
-    const id = setTimeout(() => {
-      this._timers.delete(name);
-      fn();
-    }, delay);
-    this._timers.set(name, id);
-    return id;
-  }
-  clearTimeout(name) {
-    const id = this._timers.get(name);
-    if (id !== void 0) {
-      clearTimeout(id);
-      this._timers.delete(name);
-    }
-  }
-  requestRaf(name, fn) {
-    this.cancelRaf(name);
-    const id = requestAnimationFrame((now) => {
-      this._rafs.delete(name);
-      fn(now);
-    });
-    this._rafs.set(name, id);
-    return id;
-  }
-  cancelRaf(name) {
-    const id = this._rafs.get(name);
-    if (id !== void 0) {
-      cancelAnimationFrame(id);
-      this._rafs.delete(name);
-    }
-  }
-  /** Tear down every tracked timer and RAF. */
-  stopAll() {
-    for (const id of this._timers.values()) clearTimeout(id);
-    for (const id of this._rafs.values()) cancelAnimationFrame(id);
-    this._timers.clear();
-    this._rafs.clear();
-  }
-  // ---- Motion primitives (1:1 ports of the original initAxidos closures) ----
-  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
-    this.el.head.style.transition = `transform ${dur}s ${ease}`;
-    this.el.head.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
-  }
-  setBodySwivel(rot, sx, dur) {
-    this.el.torsoSwivel.style.transition = `transform ${dur || 2}s cubic-bezier(0.45,0.05,0.55,0.95)`;
-    this.el.torsoSwivel.style.transform = `rotate(${rot}deg) scaleX(${sx || 1})`;
-  }
-  resetBodySwivel() {
-    this.el.torsoSwivel.style.transition = `transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95)`;
-    this.el.torsoSwivel.style.transform = "";
-  }
-  setLid(amount, dur = 0.7) {
-    const px = amount * 17;
-    this.el.lidTop.style.transition = `transform ${dur}s ease-in-out`;
-    this.el.lidBot.style.transition = `transform ${dur}s ease-in-out`;
-    this.el.lidTop.style.transform = `translate3d(0, ${px}px, 0)`;
-    this.el.lidBot.style.transform = `translate3d(0, ${-px}px, 0)`;
-  }
-  setBaseLid(amount, dur = 0.7) {
-    this.currentBaseLid = amount;
-    this.setLid(amount, dur);
-  }
-  setPupil(px, py) {
-    this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
-    const ey = py * 1.5;
-    this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;
-    this._pupilBellowsY = ey;
-    this._applyBellows(0.15);
-  }
-  /**
-   * Pump the bellows: amount in px (positive = compress upward). Composes
-   * with the pupil-driven bellows offset so the two don't clobber each other.
-   */
-  setBellows(amount, dur = 0.15) {
-    this._bellowsPump = amount;
-    this._applyBellows(dur);
-  }
-  _applyBellows(dur) {
-    this.el.bellows.style.transition = `transform ${dur}s ease-out`;
-    this.el.bellows.style.transform = `translate3d(0, ${(this._pupilBellowsY || 0) - (this._bellowsPump || 0)}px, 0)`;
-  }
-  /**
-   * Freeze all in-flight head/torso motion so a tap bop owns the head
-   * exclusively. Snapshots the live computed transforms of #axidos-head and
-   * #torso-swivel into their inline styles with transition disabled —
-   * halting any running CSS transition mid-flight.
-   *
-   * Used by the tap bop: pausing the idle scheduler or holding the dance
-   * only stops NEW moves; without this freeze, an in-flight pose transition
-   * keeps animating the head while the bop spring bounces the #head-bop
-   * layer — two animations fighting over the same visual.
-   */
-  freezeHeadMotion() {
-    for (const el of [this.el.head, this.el.torsoSwivel]) {
-      if (!el) continue;
-      try {
-        const t = getComputedStyle(el).transform;
-        if (t && t !== "none") {
-          el.style.transition = "none";
-          el.style.transform = t;
-        } else {
-          el.style.transition = "none";
-        }
-      } catch (err) {
-      }
-    }
-  }
-  /**
-   * Ease-clear the bop layer transform (tap-bop spring layer on the head).
-   * A short transition lets any residual displacement glide back to neutral
-   * instead of snapping when the bop ends or a state change tears it down.
-   */
-  resetBopLayer() {
-    if (this.el.headBop) {
-      this.el.headBop.style.transition = "transform 0.4s ease-out";
-      this.el.headBop.style.transform = "translate3d(0,0,0) rotate(0deg) scale(1)";
-    }
-  }
-  /**
-   * Write the LED custom properties ONLY on the consumer elements (matrix
-   * groups + indicator dots) — never on the SVG root, where a write would
-   * invalidate the entire subtree. Skips the writes entirely when both
-   * values are unchanged since the last call.
-   */
-  setLedVars(color, opacity) {
-    if (color === this._lastLedColor && opacity === this._lastLedOpacity) return;
-    this._lastLedColor = color;
-    this._lastLedOpacity = opacity;
-    for (const el of this.ledVarTargets) {
-      el.style.setProperty("--led-color", color);
-      el.style.setProperty("--led-opacity", opacity);
-    }
-  }
-  setLEDs(color, opacity) {
-    this.currentLedColor = color;
-    this.currentLedOpacity = opacity;
-    this.setLedVars(color, opacity);
-  }
-};
-
 // src/behaviors/idle.js
 function lidLoop(card, now) {
   const a = card.animator;
@@ -2117,6 +1687,485 @@ function applyState(card, mapped, bpm) {
   applyStateVisuals(card, mapped, bpm);
 }
 
+// src/hass-update.js
+function applyHassUpdate(card, hass) {
+  if (!hass) return false;
+  card._hass = hass;
+  if (!card.contentReady) {
+    card.setupDOM();
+    card.initAxidos();
+    card.contentReady = true;
+  }
+  const entity = card.config.entity;
+  const mediaEntity = card.config.media_entity;
+  const bpmEntity = card.config.bpm_entity;
+  const progressEntity = card.config.progress_entity;
+  const newVoiceState = entity && hass.states[entity] ? hass.states[entity].state.toLowerCase() : "idle";
+  const newMediaState = mediaEntity && hass.states[mediaEntity] ? hass.states[mediaEntity].state.toLowerCase() : "paused";
+  const newBpmState = bpmEntity && hass.states[bpmEntity] ? hass.states[bpmEntity].state : "120";
+  const newProgressState = progressEntity && hass.states[progressEntity] ? hass.states[progressEntity].state : null;
+  const mapped = resolveState(newVoiceState, newMediaState);
+  if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && mapped === card._state) return false;
+  card._lastHassVoice = newVoiceState;
+  card._lastHassMedia = newMediaState;
+  card._lastHassBpm = newBpmState;
+  card._lastHassProgress = newProgressState;
+  const prevProgress = card._progressPct;
+  card._progressPct = parseProgress(newProgressState, card.config.progress_min, card.config.progress_max);
+  const ringLive = card._state === "idle" || card._state === "dancing" && card.config.progress_show_in_dance !== false;
+  if (ringLive && card._progressPct !== prevProgress) {
+    updateProgressRing(card);
+  }
+  const currentBpm = parseBpm(newBpmState);
+  const prevState = card._state;
+  try {
+    if (card._state !== mapped) {
+      card._currentBpm = currentBpm;
+      applyState(card, mapped, currentBpm);
+    } else if (mapped === "dancing" && card._currentBpm !== currentBpm) {
+      card._currentBpm = currentBpm;
+      const retuned = typeof card._retuneDance === "function" && card._retuneDance(currentBpm);
+      if (!retuned) applyState(card, mapped, currentBpm);
+    } else if (mapped !== "responding") {
+      card.animator.clearTimeout("respond-delay");
+    }
+  } catch (err) {
+    card._state = prevState;
+    console.warn("axidos-card: state apply failed, will retry on next hass update", err);
+  }
+  return true;
+}
+
+// src/template.js
+function buildTemplate(config) {
+  const zoom = config.zoom !== void 0 ? config.zoom : 85;
+  const scale = zoom / 100;
+  const width = 280 * scale;
+  const height = 320 * scale;
+  const bgStyle = config.transparent_bg ? "background: transparent; box-shadow: none; border: none;" : "background: var(--ha-card-background, var(--card-background-color, #1c1c1c));";
+  return `
+    <style>
+      :host { display: flex; align-items: center; justify-content: center; ${bgStyle} border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; width: 100%; }
+      /* contain: layout paint \u2014 repaints inside the card never invalidate the
+         dashboard around it (and vice versa) on weak tablet GPUs. */
+      /* flex: none \u2014 the scene keeps its exact zoomed px size; a flex item
+         would otherwise shrink back to the slot width at zoom > 100, and the
+         SVG's preserveAspectRatio would pin the model at ~100%. getGridOptions()
+         grows the slot (rows AND columns) to match. */
+      #scene { position: relative; flex: none; width: ${width}px; height: ${height}px; display: flex; align-items: center; justify-content: center; contain: layout paint; }
+
+      #hitbox { position: absolute; inset: 0; z-index: 100; cursor: pointer; display: none; }
+      /* isolation: isolate \u2014 the SVG forms its own stacking context so its
+         compositor layers don't interleave with the rest of the dashboard. */
+      #axidos-svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; isolation: isolate; --led-color: #ffb800; --led-opacity: 0.15; }
+
+      /* ---- Compositor-layer promotion ----
+         Every group animated via transform gets will-change: transform so the
+         browser hoists it to its own GPU layer: per-frame transform writes
+         (RAF spring loop, CSS transitions) then composite on the GPU instead
+         of triggering main-thread SVG repaints. Applied ONLY to groups that
+         actually animate \u2014 each hint costs GPU memory. Includes the ambient
+         sway pivots (#body-pivot, #head-sway-pivot): their infinite CSS
+         keyframe rotations repaint the whole subtree every frame unless
+         promoted. */
+      #axidos-head, #head-bop, #torso-swivel, #bellows,
+      #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center,
+      #body-pivot, #head-sway-pivot {
+        will-change: transform;
+      }
+      /* Rotation/scale groups need view-box coordinates for transform-origin. */
+      #axidos-head, #head-bop, #torso-swivel, #eye-center,
+      #body-pivot, #head-sway-pivot { transform-box: view-box; }
+      /* Bop layer: dedicated transform group for the tap-bop spring so it
+         composes additively with the head poses (#axidos-head) instead of
+         fighting over one transform. Pivots at the neck like #axidos-head. */
+      #head-bop { transform-origin: 140px 285px; }
+
+      .led-dot, #ind-l1, #ind-l2, #ind-r1, #ind-r2 { transition: opacity 0.15s ease-out; fill: var(--led-color); opacity: var(--led-opacity); }
+      .led-matrix.pulsing .led-dot { animation: led-pulse 0.9s ease-in-out infinite; }
+      @keyframes led-pulse { 0%,100% { opacity: var(--led-opacity); } 50% { opacity: calc(var(--led-opacity) * 0.3); } }
+
+      #body-pivot { transform-origin: 140px 116px; animation: body-sway 8s ease-in-out infinite; }
+      @keyframes body-sway { 0%, 100% { transform: rotate(-1.4deg); } 50% { transform: rotate( 1.4deg); } }
+
+      #head-sway-pivot { transform-origin: 140px 285px; animation: head-ambient-sway 13s ease-in-out infinite; }
+      @keyframes head-ambient-sway { 0%, 100% { transform: rotate(-0.8deg); } 50% { transform: rotate(0.8deg); } }
+
+      #torso-swivel { transform-origin: 140px 116px; transition: transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95); }
+      #axidos-head { transform-box: view-box; transform-origin: 140px 285px; transition: transform 1.6s cubic-bezier(0.34, 1.06, 0.64, 1); }
+
+      #eye-halo { transition: fill 0.8s ease-in-out; }
+      /* Eye pulse: the dance engine scales #eye-center every beat; a short
+         transform transition turns that write into an organic pulse instead
+         of a snap. Kept short so the pulse still lands on the beat. */
+      #eye-center { transition: fill 0.8s ease-in-out, transform 0.18s ease-out; }
+      .eye-layer { transition: opacity 0.8s ease-in-out; }
+      @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
+      #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
+      @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
+      #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
+
+      /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
+         length IS the percentage). Smooth transitions turn sensor jumps into
+         a glide; opacity gates visibility to the idle state. */
+      #progress-ring {
+        transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
+      }
+    </style>
+    <div id="scene">
+      <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
+      <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <defs>
+          <linearGradient id="ceramicGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8a8d94"/><stop offset="8%" stop-color="#b0b4bc"/><stop offset="8.5%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffffff"/><stop offset="75%" stop-color="#ffffff"/><stop offset="91.5%" stop-color="#e8eaec"/><stop offset="92%" stop-color="#a0a4ac"/><stop offset="100%" stop-color="#6a6d75"/></linearGradient>
+          <linearGradient id="ceramicBackgroundGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a4d54"/><stop offset="8%" stop-color="#70747c"/><stop offset="8.5%" stop-color="#b0b4bc"/><stop offset="25%" stop-color="#b0b4bc"/><stop offset="75%" stop-color="#b0b4bc"/><stop offset="91.5%" stop-color="#a0a4ac"/><stop offset="92%" stop-color="#6a6d75"/><stop offset="100%" stop-color="#3a3d44"/></linearGradient>
+          <linearGradient id="ceramicShadow" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffffff" stop-opacity="0"/><stop offset="60%" stop-color="#60646c" stop-opacity="0.1"/><stop offset="85%" stop-color="#2a2c32" stop-opacity="0.5"/><stop offset="100%" stop-color="#0a0a0f" stop-opacity="0.85"/></linearGradient>
+          <linearGradient id="bezelGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a4d54"/><stop offset="20%" stop-color="#6a6d75"/><stop offset="50%" stop-color="#3a3c42"/><stop offset="80%" stop-color="#1a1c20"/><stop offset="100%" stop-color="#0a0a0c"/></linearGradient>
+          <linearGradient id="cavityGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#181a1c"/><stop offset="100%" stop-color="#30353a"/></linearGradient>
+          <linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#1a1c20"/><stop offset="50%" stop-color="#3a3e46"/><stop offset="100%" stop-color="#121316"/></linearGradient>
+          <radialGradient id="eyeGradIdle" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#ffcc00"/><stop offset="55%" stop-color="#d95500"/><stop offset="80%" stop-color="#7a1100"/><stop offset="100%" stop-color="#110000"/></radialGradient>
+          <radialGradient id="eyeGradListen" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#aaffff"/><stop offset="60%" stop-color="#00ccff"/><stop offset="85%" stop-color="#0066aa"/><stop offset="100%" stop-color="#001a33"/></radialGradient>
+          <radialGradient id="eyeGradProcess" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffddaa"/><stop offset="60%" stop-color="#ff6600"/><stop offset="85%" stop-color="#aa3300"/><stop offset="100%" stop-color="#220a00"/></radialGradient>
+          <radialGradient id="eyeGradRespond" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffaaaa"/><stop offset="60%" stop-color="#ff2200"/><stop offset="85%" stop-color="#aa0000"/><stop offset="100%" stop-color="#220000"/></radialGradient>
+          <radialGradient id="eyeGradDance" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="20%" stop-color="#aaffaa"/><stop offset="55%" stop-color="#1DB954"/><stop offset="80%" stop-color="#0a5926"/><stop offset="100%" stop-color="#001a00"/></radialGradient>
+          <!-- No SVG filters remain: feGaussianBlur re-rasterizes on every
+               transform write and defeats compositor-layer promotion on
+               Android WebView. The faceplate inset's soft fringe is faked
+               with stepped rects (see Group_Faceplate_Inset); the eye glow
+               uses the pre-blurred radial gradient below. -->
+          <!-- Fake glow: pre-blurred radial gradient, rasterized once and
+               cached as a texture. Used on the eye layers + indicator dot. -->
+          <radialGradient id="glowGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+            <stop offset="45%" stop-color="#ffffff" stop-opacity="0.35"/>
+            <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="haloGradIdle"><stop offset="0%" stop-color="#330800" stop-opacity="1"/><stop offset="60%" stop-color="#330800" stop-opacity="0.4"/><stop offset="100%" stop-color="#330800" stop-opacity="0"/></radialGradient>
+          <radialGradient id="haloGradDance"><stop offset="0%" stop-color="#1DB954" stop-opacity="1"/><stop offset="60%" stop-color="#1DB954" stop-opacity="0.4"/><stop offset="100%" stop-color="#1DB954" stop-opacity="0"/></radialGradient>
+          <radialGradient id="haloGradListen"><stop offset="0%" stop-color="#00ccff" stop-opacity="1"/><stop offset="60%" stop-color="#00ccff" stop-opacity="0.4"/><stop offset="100%" stop-color="#00ccff" stop-opacity="0"/></radialGradient>
+          <radialGradient id="haloGradProcess"><stop offset="0%" stop-color="#ff6600" stop-opacity="1"/><stop offset="60%" stop-color="#ff6600" stop-opacity="0.4"/><stop offset="100%" stop-color="#ff6600" stop-opacity="0"/></radialGradient>
+          <radialGradient id="haloGradRespond"><stop offset="0%" stop-color="#ff2200" stop-opacity="1"/><stop offset="60%" stop-color="#ff2200" stop-opacity="0.4"/><stop offset="100%" stop-color="#ff2200" stop-opacity="0"/></radialGradient>
+          <linearGradient id="lidGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1f2124"/><stop offset="100%" stop-color="#08090a"/></linearGradient>
+          <linearGradient id="lidGradFlip" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#1f2124"/><stop offset="100%" stop-color="#08090a"/></linearGradient>
+          <clipPath id="cavityClip"><rect x="97" y="283.25" width="66" height="161.5" rx="33"/></clipPath>
+          <clipPath id="trackClip"><rect x="107" y="293.25" width="46" height="141.5" rx="23"/></clipPath>
+          <clipPath id="eyeballClip"><circle cx="130" cy="364" r="25.5"/></clipPath>
+          <!-- socketClip: hard geometric bound for the pupil. The iris
+               (r=17.6) sits inside the socket face (r=23), leaving only a
+               5.4 px translation budget \u2014 dance darts can request more.
+               Applied to a STATIC wrapper group (not #eye-pupil itself) so
+               the clip does not translate with the pupil it clips. -->
+          <clipPath id="socketClip"><circle cx="130" cy="364" r="23"/></clipPath>
+        </defs>
+        <g id="body-pivot">
+          <g id="torso-swivel">
+            <g id="torso" transform="matrix(1.2,0,0,1.2,-28,-23.2)">
+              <ellipse cx="140" cy="116" rx="55" ry="15" fill="#1c1c26" stroke="#0c0c12" stroke-width="1.2"/>
+              <ellipse cx="140" cy="116" rx="46" ry="11" fill="#141420" stroke="#1e1e2c" stroke-width="0.7"/>
+              <path d="m 94,126 -8,8 -2,66 q 0,10 10,12 h 92 q 10,-2 10,-12 l -2,-66 -8,-8 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1.4"/>
+              <path d="m 90,132 -28,8 -4,40 4,16 12,4 16,-4 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1"/>
+              <path d="m 90,136 -24,7 -4,35 4,14 10,4 14,-4 z" fill="#eeeeee" opacity="0.05"/>
+              <circle cx="60" cy="168" r="9" fill="#14141c" stroke="#0c0c12" stroke-width="1"/>
+              <circle cx="60" cy="168" r="5.5" fill="#0c0c10" stroke="#1a1a22" stroke-width="0.8"/>
+              <path d="m 90,132 c -4,20 -6,40 -4,60" stroke="#1a1a22" stroke-width="2.5" fill="none" opacity="0.8"/>
+              <path d="m 190,132 28,8 4,40 -4,16 -12,4 -16,-4 z" fill="url(#ceramicBackgroundGrad)" stroke="#6a6d75" stroke-width="1"/>
+              <path d="m 190,136 24,7 4,35 -4,14 10,4 14,-4 z" fill="#eeeeee" opacity="0.05"/>
+              <circle cx="220" cy="168" r="9" fill="#14141c" stroke="#0c0c12" stroke-width="1"/>
+              <circle cx="220" cy="168" r="5.5" fill="#0c0c10" stroke="#1a1a22" stroke-width="0.8"/>
+              <path d="m 190,132 c 4,20 6,40 4,60" stroke="#1a1a22" stroke-width="2.5" fill="none" opacity="0.8"/>
+              <line x1="90" y1="152" x2="190" y2="152" stroke="#6a6d75" stroke-width="1"/>
+              <line x1="89" y1="174" x2="191" y2="174" stroke="#6a6d75" stroke-width="1"/>
+              <line x1="140" y1="128" x2="140" y2="210" stroke="#6a6d75" stroke-width="1"/>
+              <rect x="94" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
+              <rect x="96" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
+              <g id="led-matrix-left" class="led-matrix">
+                <rect class="led-dot" x="98" y="140" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="98" y="145" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="98" y="150" width="28" height="2" rx="1"/>
+              </g>
+              <rect x="150" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
+              <rect x="152" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
+              <g id="led-matrix-right" class="led-matrix">
+                <rect class="led-dot" x="154" y="140" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="154" y="145" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="154" y="150" width="28" height="2" rx="1"/>
+              </g>
+              <circle cx="100" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
+              <circle id="ind-l1" cx="100" cy="180" r="1.5"/>
+              <circle cx="108" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
+              <circle id="ind-l2" cx="108" cy="180" r="1.5"/>
+              <circle cx="172" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
+              <circle id="ind-r1" cx="172" cy="180" r="1.5"/>
+              <circle cx="180" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
+              <circle id="ind-r2" cx="180" cy="180" r="1.5"/>
+            </g>
+          </g>
+        </g>
+        <g id="axidos-head-wrapper" transform="translate(0, -65)">
+          <g id="head-sway-pivot">
+            <g id="axidos-head">
+              <g id="head-bop">
+              <ellipse cx="140" cy="285" rx="18" ry="6" fill="#181824" stroke="#0a0a0f" stroke-width="1"/>
+              <ellipse cx="140" cy="285" rx="12" ry="3.8" fill="#101015" stroke="#181824" stroke-width="0.6"/>
+              <g id="Group_White_Casing">
+                <path id="rect74" fill="url(#ceramicGrad)" d="m 135,232 h 10 c 20.41692,0 38.38909,10.09589 49.21698,25.58812 L 205,276.8 c 0,0 2.4,52.45447 2.4,78.7 0,26.24553 -2.4,78.7 -2.4,78.7 l -10.77334,19.19803 C 183.3998,468.8981 165.423,479 145,479 H 135 C 114.59769,479 96.636634,468.91856 85.806278,453.44514 L 75,434.2 c 0,0 -2.4,-52.45447 -2.4,-78.7 0,-26.24553 2.4,-78.7 2.4,-78.7 L 85.808333,257.55193 C 96.638906,242.08017 114.59898,232 135,232 Z"/>
+                <rect x="75" y="232" width="130" height="247" rx="60" fill="url(#ceramicShadow)"/>
+              </g>
+              <g id="Group_Faceplate_Inset">
+                <!-- Stepped fake of the old 2px blur filter: two expanded
+                     black rects beneath the base rect approximate the blur's
+                     soft dark fringe without an SVG filter (zero re-raster
+                     cost). Static \u2014 rasterized once. -->
+                <rect x="91" y="277.25" width="80" height="175.5" rx="40" fill="#000" opacity="0.12"/>
+                <rect x="92" y="278.25" width="78" height="173.5" rx="39" fill="#000" opacity="0.30"/>
+                <rect x="93" y="279.25" width="76" height="171.5" rx="38" fill="#000" opacity="0.6"/>
+                <rect x="91" y="277.25" width="78" height="173.5" rx="39" fill="url(#bezelGrad)" stroke="#1a1c22" stroke-width="1"/>
+                <rect x="93" y="279.25" width="74" height="169.5" rx="37" fill="none" stroke="#6a6d75" stroke-width="1.5"/>
+                <g clip-path="url(#cavityClip)">
+                  <rect x="97" y="283.25" width="66" height="161.5" rx="33" fill="url(#cavityGrad)"/>
+                  <rect x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#050607" stroke-width="5" opacity="0.9"/>
+                  <rect x="107" y="293.25" width="46" height="141.5" rx="23" fill="url(#trackGrad)" stroke="#000000" stroke-width="3"/>
+                  <g clip-path="url(#trackClip)">
+                    <g id="bellows" style="transition: transform 0.15s ease-out;">
+                      <g stroke="#000" stroke-width="4.5" stroke-linecap="butt" opacity="0.9">
+                        <line x1="107" y1="140" x2="153" y2="140"/><line x1="107" y1="152" x2="153" y2="152"/><line x1="107" y1="164" x2="153" y2="164"/><line x1="107" y1="176" x2="153" y2="176"/><line x1="107" y1="188" x2="153" y2="188"/><line x1="107" y1="200" x2="153" y2="200"/><line x1="107" y1="212" x2="153" y2="212"/><line x1="107" y1="224" x2="153" y2="224"/><line x1="107" y1="236" x2="153" y2="236"/><line x1="107" y1="248" x2="153" y2="248"/><line x1="107" y1="260" x2="153" y2="260"/><line x1="107" y1="272" x2="153" y2="272"/><line x1="107" y1="284" x2="153" y2="284"/><line x1="107" y1="296" x2="153" y2="296"/><line x1="107" y1="308" x2="153" y2="308"/><line x1="107" y1="320" x2="153" y2="320"/><line x1="107" y1="332" x2="153" y2="332"/><line x1="107" y1="344" x2="153" y2="344"/><line x1="107" y1="356" x2="153" y2="356"/><line x1="107" y1="368" x2="153" y2="368"/><line x1="107" y1="380" x2="153" y2="380"/><line x1="107" y1="392" x2="153" y2="392"/><line x1="107" y1="404" x2="153" y2="404"/><line x1="107" y1="416" x2="153" y2="416"/><line x1="107" y1="428" x2="153" y2="428"/><line x1="107" y1="440" x2="153" y2="440"/><line x1="107" y1="452" x2="153" y2="452"/><line x1="107" y1="464" x2="153" y2="464"/><line x1="107" y1="476" x2="153" y2="476"/><line x1="107" y1="488" x2="153" y2="488"/><line x1="107" y1="500" x2="153" y2="500"/><line x1="107" y1="512" x2="153" y2="512"/><line x1="107" y1="524" x2="153" y2="524"/>
+                      </g>
+                    </g>
+                  </g>
+                  <g id="eyeball-assembly" style="transition: transform 0.15s ease-out;">
+                    <circle cx="130" cy="364" r="26" fill="#1c1e22" stroke="#000000" stroke-width="2"/>
+                    <circle cx="130" cy="364" r="23" fill="#0a0b0c"/>
+                    <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
+                    <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
+                    <circle id="eye-halo" cx="130" cy="364" r="25" fill="url(#haloGradIdle)" opacity=".05"/>
+                    <!-- Static clip wrapper: socketClip must live on a PARENT
+                         of #eye-pupil \u2014 a clip on the pupil itself would
+                         translate along with it and clip nothing. -->
+                    <g clip-path="url(#socketClip)">
+                      <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
+                      <!-- Pre-blurred glow halo (rasterized once) replaces the
+                           per-frame feGaussianBlur that used to sit on each
+                           eye layer \u2014 visually equivalent soft edge, zero
+                           filter cost while the pupil moves. -->
+                      <circle id="eye-glow" cx="130" cy="364" r="21" fill="url(#glowGrad)" opacity="0.55" pointer-events="none"/>
+                      <circle id="eye-layer-idle" cx="130" cy="364" r="17.6" fill="url(#eyeGradIdle)" class="eye-layer" opacity="1" />
+                      <circle id="eye-layer-listen" cx="130" cy="364" r="17.6" fill="url(#eyeGradListen)" class="eye-layer" opacity="0" />
+                      <circle id="eye-layer-process" cx="130" cy="364" r="17.6" fill="url(#eyeGradProcess)" class="eye-layer" opacity="0" />
+                      <circle id="eye-layer-respond" cx="130" cy="364" r="17.6" fill="url(#eyeGradRespond)" class="eye-layer" opacity="0" />
+                      <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
+                      <circle id="eye-center" cx="130" cy="364" r="6.6" fill="#ffe855" />
+                      <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
+                      </g>
+                    </g>
+                    <g clip-path="url(#eyeballClip)">
+                      <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>
+                      <path id="eye-lid-bottom" d="M 80,500 H 180 V 364 h -24 a 26,26 0 0 1 -52,0 H 80 Z" fill="url(#lidGradFlip)" stroke="#000000" stroke-width="2"/>
+                    </g>
+                  </g>
+                </g>
+              </g>
+              <path d="m 92,359 5,2 v 6 l -5,2 z" fill="#050505"/>
+              <path d="m 92,379 5,2 v 8 l -5,2 z" fill="#050505"/>
+              <rect id="danger-ring" x="97" y="283.25" width="66" height="161.5" rx="33" fill="none" stroke="#ff2200" stroke-width="2" opacity="0"/>
+              <!-- Idle progress ring: same stadium outline as #danger-ring but
+                   as a path starting at BOTTOM-CENTER (130,444.75) running
+                   clockwise (left side first). pathLength=100 normalizes the
+                   geometry so stroke-dasharray "N 100" fills exactly N%.
+                   Separate element from #danger-ring so the responding-state
+                   red flash and the idle progress fill never interact. -->
+              <path id="progress-ring" d="M 130,444.75 A 33,33 0 0 1 97,411.75 L 97,316.25 A 33,33 0 0 1 130,283.25 A 33,33 0 0 1 163,316.25 L 163,411.75 A 33,33 0 0 1 130,444.75 Z" pathLength="100" fill="none" stroke="#ffcc00" stroke-width="2" stroke-linecap="round" stroke-dasharray="0 100" opacity="0"/>
+              </g>
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  `;
+}
+
+// src/animator.js
+var AxidosAnimator = class {
+  constructor(shadowRoot) {
+    const root = shadowRoot;
+    this.el = {
+      svg: root.getElementById("axidos-svg"),
+      head: root.getElementById("axidos-head"),
+      headBop: root.getElementById("head-bop"),
+      torsoSwivel: root.getElementById("torso-swivel"),
+      hitbox: root.getElementById("hitbox"),
+      eyeLayerIdle: root.getElementById("eye-layer-idle"),
+      eyeLayerListen: root.getElementById("eye-layer-listen"),
+      eyeLayerProcess: root.getElementById("eye-layer-process"),
+      eyeLayerRespond: root.getElementById("eye-layer-respond"),
+      eyeLayerDance: root.getElementById("eye-layer-dance"),
+      eyeHalo: root.getElementById("eye-halo"),
+      eyeCenter: root.getElementById("eye-center"),
+      pupil: root.getElementById("eye-pupil"),
+      eyeball: root.getElementById("eyeball-assembly"),
+      bellows: root.getElementById("bellows"),
+      lidTop: root.getElementById("eye-lid"),
+      lidBot: root.getElementById("eye-lid-bottom"),
+      dangerRing: root.getElementById("danger-ring"),
+      progressRing: root.getElementById("progress-ring"),
+      ledMatrices: root.querySelectorAll(".led-matrix")
+    };
+    this.ledVarTargets = [
+      ...root.querySelectorAll(".led-matrix"),
+      root.getElementById("ind-l1"),
+      root.getElementById("ind-l2"),
+      root.getElementById("ind-r1"),
+      root.getElementById("ind-r2")
+    ].filter(Boolean);
+    this._lastLedColor = null;
+    this._lastLedOpacity = null;
+    this.currentBaseLid = 0;
+    this.currentLedColor = "#ffb800";
+    this.currentLedOpacity = "0.15";
+    this._timers = /* @__PURE__ */ new Map();
+    this._rafs = /* @__PURE__ */ new Map();
+  }
+  // ---- Tracked scheduling (the ONLY way behaviors may schedule work) ----
+  setTimeout(name, fn, delay) {
+    this.clearTimeout(name);
+    const id = setTimeout(() => {
+      this._timers.delete(name);
+      fn();
+    }, delay);
+    this._timers.set(name, id);
+    return id;
+  }
+  clearTimeout(name) {
+    const id = this._timers.get(name);
+    if (id !== void 0) {
+      clearTimeout(id);
+      this._timers.delete(name);
+    }
+  }
+  requestRaf(name, fn) {
+    this.cancelRaf(name);
+    const id = requestAnimationFrame((now) => {
+      this._rafs.delete(name);
+      fn(now);
+    });
+    this._rafs.set(name, id);
+    return id;
+  }
+  cancelRaf(name) {
+    const id = this._rafs.get(name);
+    if (id !== void 0) {
+      cancelAnimationFrame(id);
+      this._rafs.delete(name);
+    }
+  }
+  /** Tear down every tracked timer and RAF. */
+  stopAll() {
+    for (const id of this._timers.values()) clearTimeout(id);
+    for (const id of this._rafs.values()) cancelAnimationFrame(id);
+    this._timers.clear();
+    this._rafs.clear();
+  }
+  // ---- Motion primitives (1:1 ports of the original initAxidos closures) ----
+  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
+    this.el.head.style.transition = `transform ${dur}s ${ease}`;
+    this.el.head.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
+  }
+  setBodySwivel(rot, sx, dur) {
+    this.el.torsoSwivel.style.transition = `transform ${dur || 2}s cubic-bezier(0.45,0.05,0.55,0.95)`;
+    this.el.torsoSwivel.style.transform = `rotate(${rot}deg) scaleX(${sx || 1})`;
+  }
+  resetBodySwivel() {
+    this.el.torsoSwivel.style.transition = `transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95)`;
+    this.el.torsoSwivel.style.transform = "";
+  }
+  setLid(amount, dur = 0.7) {
+    const px = amount * 17;
+    this.el.lidTop.style.transition = `transform ${dur}s ease-in-out`;
+    this.el.lidBot.style.transition = `transform ${dur}s ease-in-out`;
+    this.el.lidTop.style.transform = `translate3d(0, ${px}px, 0)`;
+    this.el.lidBot.style.transform = `translate3d(0, ${-px}px, 0)`;
+  }
+  setBaseLid(amount, dur = 0.7) {
+    this.currentBaseLid = amount;
+    this.setLid(amount, dur);
+  }
+  setPupil(px, py) {
+    this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+    const ey = py * 1.5;
+    this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;
+    this._pupilBellowsY = ey;
+    this._applyBellows(0.15);
+  }
+  /**
+   * Pump the bellows: amount in px (positive = compress upward). Composes
+   * with the pupil-driven bellows offset so the two don't clobber each other.
+   */
+  setBellows(amount, dur = 0.15) {
+    this._bellowsPump = amount;
+    this._applyBellows(dur);
+  }
+  _applyBellows(dur) {
+    this.el.bellows.style.transition = `transform ${dur}s ease-out`;
+    this.el.bellows.style.transform = `translate3d(0, ${(this._pupilBellowsY || 0) - (this._bellowsPump || 0)}px, 0)`;
+  }
+  /**
+   * Freeze all in-flight head/torso motion so a tap bop owns the head
+   * exclusively. Snapshots the live computed transforms of #axidos-head and
+   * #torso-swivel into their inline styles with transition disabled —
+   * halting any running CSS transition mid-flight.
+   *
+   * Used by the tap bop: pausing the idle scheduler or holding the dance
+   * only stops NEW moves; without this freeze, an in-flight pose transition
+   * keeps animating the head while the bop spring bounces the #head-bop
+   * layer — two animations fighting over the same visual.
+   */
+  freezeHeadMotion() {
+    for (const el of [this.el.head, this.el.torsoSwivel]) {
+      if (!el) continue;
+      try {
+        const t = getComputedStyle(el).transform;
+        if (t && t !== "none") {
+          el.style.transition = "none";
+          el.style.transform = t;
+        } else {
+          el.style.transition = "none";
+        }
+      } catch (err) {
+      }
+    }
+  }
+  /**
+   * Ease-clear the bop layer transform (tap-bop spring layer on the head).
+   * A short transition lets any residual displacement glide back to neutral
+   * instead of snapping when the bop ends or a state change tears it down.
+   */
+  resetBopLayer() {
+    if (this.el.headBop) {
+      this.el.headBop.style.transition = "transform 0.4s ease-out";
+      this.el.headBop.style.transform = "translate3d(0,0,0) rotate(0deg) scale(1)";
+    }
+  }
+  /**
+   * Write the LED custom properties ONLY on the consumer elements (matrix
+   * groups + indicator dots) — never on the SVG root, where a write would
+   * invalidate the entire subtree. Skips the writes entirely when both
+   * values are unchanged since the last call.
+   */
+  setLedVars(color, opacity) {
+    if (color === this._lastLedColor && opacity === this._lastLedOpacity) return;
+    this._lastLedColor = color;
+    this._lastLedOpacity = opacity;
+    for (const el of this.ledVarTargets) {
+      el.style.setProperty("--led-color", color);
+      el.style.setProperty("--led-opacity", opacity);
+    }
+  }
+  setLEDs(color, opacity) {
+    this.currentLedColor = color;
+    this.currentLedOpacity = opacity;
+    this.setLedVars(color, opacity);
+  }
+};
+
 // src/axidos-card.js
 var AxidosCard = class extends HTMLElement {
   constructor() {
@@ -2153,43 +2202,12 @@ var AxidosCard = class extends HTMLElement {
       updateProgressRing(this);
     }
   }
+  // The full delivery pipeline (firehose gate, self-healing sync check,
+  // progress parsing, state application with exception protection) lives in
+  // hass-update.js — extracted so the verify suites can drive real deliveries
+  // through the exact production code path.
   set hass(hass) {
-    if (!hass) return;
-    this._hass = hass;
-    if (!this.contentReady) {
-      this.setupDOM();
-      this.initAxidos();
-      this.contentReady = true;
-    }
-    const entity = this.config.entity;
-    const mediaEntity = this.config.media_entity;
-    const bpmEntity = this.config.bpm_entity;
-    const progressEntity = this.config.progress_entity;
-    const newVoiceState = entity && hass.states[entity] ? hass.states[entity].state.toLowerCase() : "idle";
-    const newMediaState = mediaEntity && hass.states[mediaEntity] ? hass.states[mediaEntity].state.toLowerCase() : "paused";
-    const newBpmState = bpmEntity && hass.states[bpmEntity] ? hass.states[bpmEntity].state : "120";
-    const newProgressState = progressEntity && hass.states[progressEntity] ? hass.states[progressEntity].state : null;
-    if (this._lastHassVoice === newVoiceState && this._lastHassMedia === newMediaState && this._lastHassBpm === newBpmState && this._lastHassProgress === newProgressState) return;
-    this._lastHassVoice = newVoiceState;
-    this._lastHassMedia = newMediaState;
-    this._lastHassBpm = newBpmState;
-    this._lastHassProgress = newProgressState;
-    const prevProgress = this._progressPct;
-    this._progressPct = parseProgress(newProgressState, this.config.progress_min, this.config.progress_max);
-    const ringLive = this._state === "idle" || this._state === "dancing" && this.config.progress_show_in_dance !== false;
-    if (ringLive && this._progressPct !== prevProgress) {
-      updateProgressRing(this);
-    }
-    const currentBpm = parseBpm(newBpmState);
-    const mapped = resolveState(newVoiceState, newMediaState);
-    if (this._state !== mapped) {
-      this._currentBpm = currentBpm;
-      applyState(this, mapped, currentBpm);
-    } else if (mapped === "dancing" && this._currentBpm !== currentBpm) {
-      this._currentBpm = currentBpm;
-      const retuned = typeof this._retuneDance === "function" && this._retuneDance(currentBpm);
-      if (!retuned) applyState(this, mapped, currentBpm);
-    }
+    applyHassUpdate(this, hass);
   }
   getCardSize() {
     const zoom = this.config?.zoom ?? 85;
@@ -2213,6 +2231,10 @@ var AxidosCard = class extends HTMLElement {
     if (this._boundVisibility) {
       document.addEventListener("visibilitychange", this._boundVisibility);
     }
+    this._lastHassVoice = null;
+    this._lastHassMedia = null;
+    this._lastHassBpm = null;
+    this._lastHassProgress = null;
     if (this.contentReady) {
       if (this._hitbox) {
         if (this._tapHandler) this._hitbox.addEventListener("click", this._tapHandler);
