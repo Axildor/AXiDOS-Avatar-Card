@@ -31,6 +31,104 @@ export function parseBpm(rawBpm) {
 }
 
 /**
+ * Parse the AX BPM mood entity's data into a dance-style directive.
+ *
+ * Source (5.7.0): the dedicated AX BPM mood entity (integration 3.3.0+).
+ * hass-update.js merges its STATE (the mood label, e.g. 'party') and its
+ * ATTRIBUTES (mood_scores / intensity / calmness) into one dict:
+ *   mood_scores: { aggressive, party, relaxed, electronic, acoustic }
+ *   mood_label:  the dominant label (e.g. 'party')
+ *   intensity / calmness: 0-1 scalars
+ *
+ * Output (all fields always present — callers never null-check):
+ *   present:     false when no usable mood attributes exist (plain BPM
+ *                sensor) — every directive is then neutral, so existing
+ *                users get bit-identical behavior.
+ *   tierShift:   -1 | 0 | +1 — shifts the BPM-derived phrase-library tier.
+ *                relaxed-dominant downshifts (chill moves at fast tempo),
+ *                party/aggressive-dominant upshifts.
+ *   energyBias:  additive bias for the choreography energy envelope,
+ *                clamped to [-0.2, +0.2]. Relaxed pulls wild phrases out
+ *                of selection; party/aggressive pull them in.
+ *   lidFloor:    the dance lid-droop floor. Relaxed raises it (sleepy
+ *                chill), party/aggressive lower it (wide awake).
+ *
+ * Dominance rule: the mood_label's own score must be the maximum of the
+ * score set AND above MOOD_CONFIDENCE (0.4) — a weak or noisy
+ * classification stays neutral instead of yanking the style around.
+ */
+export function parseMood(attrs) {
+  const neutral = { present: false, tierShift: 0, energyBias: 0, lidFloor: null };
+  if (!attrs || typeof attrs !== 'object') return neutral;
+  const scores = attrs.mood_scores;
+  if (!scores || typeof scores !== 'object') return neutral;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const aggressive = num(scores.aggressive);
+  const party = num(scores.party);
+  const relaxed = num(scores.relaxed);
+  if (aggressive === null && party === null && relaxed === null) return neutral;
+
+  const label = typeof attrs.mood_label === 'string' ? attrs.mood_label.toLowerCase() : '';
+  const vals = [aggressive, party, relaxed].filter((v) => v !== null);
+  const maxScore = vals.length ? Math.max(...vals) : 0;
+  // Dominance: the labeled mood must be the top score and confident.
+  const labelScore = label === 'aggressive' ? aggressive
+    : label === 'party' ? party
+    : label === 'relaxed' ? relaxed
+    : null;
+  const dominant = labelScore !== null && labelScore >= MOOD_CONFIDENCE && labelScore >= maxScore;
+
+  let tierShift = 0;
+  let energyBias = 0;
+  let lidFloor = null;
+  if (dominant) {
+    if (label === 'relaxed') {
+      tierShift = -1;
+      energyBias = -0.2;
+      lidFloor = MOOD_LID_RELAXED;
+    } else {
+      // party and aggressive both read as high-arousal: upshift + brighter.
+      tierShift = 1;
+      energyBias = 0.2;
+      lidFloor = MOOD_LID_AWAKE;
+    }
+  } else {
+    // Non-dominant moods still tint the energy envelope softly from the
+    // raw scores (party/aggressive up, relaxed down), never enough to
+    // cross the tier gate on their own.
+    const p = party || 0;
+    const ag = aggressive || 0;
+    const re = relaxed || 0;
+    energyBias = Math.max(-0.2, Math.min(0.2, (p * 0.6 + ag * 0.4 - re) * 0.3));
+  }
+  return { present: true, tierShift, energyBias, lidFloor };
+}
+
+/** Confidence threshold for a mood label to steer the style. */
+export const MOOD_CONFIDENCE = 0.4;
+
+/**
+ * Compact change-detection signature for the mood entity's data.
+ * The firehose gate compares this string instead of the raw attributes
+ * object (HA replaces the attributes object on every sensor update, so a
+ * raw comparison would gate-bust on every delivery). Scores are rounded to
+ * 2 decimals — sub-0.01 analyzer churn between updates does not restart or
+ * retune the dance.
+ */
+export function moodSignature(attrs) {
+  if (!attrs || typeof attrs !== 'object' || !attrs.mood_scores || typeof attrs.mood_scores !== 'object') return '';
+  const s = attrs.mood_scores;
+  const r2 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : '-');
+  return [
+    attrs.mood_label || '',
+    r2(s.aggressive), r2(s.party), r2(s.relaxed), r2(s.electronic), r2(s.acoustic),
+  ].join('|');
+}
+/** Lid-droop floors: relaxed keeps a sleepy droop, high-arousal stays open. */
+export const MOOD_LID_RELAXED = 0.3;
+export const MOOD_LID_AWAKE = 0.05;
+
+/**
  * Parse a progress sensor state string and normalize it to the ring's 0-100
  * scale using the configured bounds (progress_min / progress_max).
  *

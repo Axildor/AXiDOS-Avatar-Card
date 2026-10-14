@@ -144,6 +144,14 @@ export class AxidosAnimator {
   }
 
   setPupil(px, py) {
+    // Redundant-write guard (mirrors setLid/setLedVars): the dance loop can
+    // issue setPupil every beat (darts, syncopation accents) and each call
+    // cascades into THREE element writes (pupil, eyeball, bellows) — on a
+    // weak tablet CPU that is 3 style recalcs per beat for no visual change
+    // when the target is identical. Skip the whole cascade when unchanged.
+    if (px === this._lastPupilX && py === this._lastPupilY) return;
+    this._lastPupilX = px;
+    this._lastPupilY = py;
     this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
     const ey = py * 1.5;
     this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;

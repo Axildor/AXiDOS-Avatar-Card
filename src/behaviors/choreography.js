@@ -76,8 +76,13 @@ const DART_MAX = [5, 6, 6, 9];
  * co-prime wobble (period 97) so the combined pattern repeats only every
  * 6208 beats. Energy now drives PHRASE SELECTION only — it no longer scales
  * pose amplitude.
+ *
+ * The optional energyBias (5.6.0, mood-aware style) shifts the whole curve
+ * additively before the floor/ceiling clamp: a relaxed track biases the
+ * envelope down (wild phrases stay out of selection), a party/aggressive
+ * track biases it up. Default 0 keeps the legacy curve bit-identical.
  */
-export function getEnergy(dancePhase) {
+export function getEnergy(dancePhase, energyBias = 0) {
   const phase = ((dancePhase % 64) + 64) % 64;
   const center = phase - 8;
   const seg = Math.floor(center / 16);
@@ -86,7 +91,7 @@ export function getEnergy(dancePhase) {
   const to = ENERGY_WINDOWS[(((seg + 1) % 4) + 4) % 4];
   const base = from + (to - from) * (0.5 - 0.5 * Math.cos(t * Math.PI));
   const wobble = 0.09 * Math.sin((2 * Math.PI * dancePhase) / 97);
-  return Math.min(ENERGY_MAX, Math.max(ENERGY_MIN, base + wobble));
+  return Math.min(ENERGY_MAX, Math.max(ENERGY_MIN, base + wobble + energyBias));
 }
 
 // ---- Move factories ----

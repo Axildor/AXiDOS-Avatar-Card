@@ -10,34 +10,43 @@
  * 'idle-blink', 'idle-glitch', 'lid-loop'.
  */
 
-// ---- Lid behavior loop (double rAF kinetic reflow companion) ----
+// ---- Lid behavior loop (timer-scheduled, 5.8.0) ----
 
-function lidLoop(card, now) {
+// The lid loop previously ran a requestAnimationFrame chain that woke the
+// main thread EVERY frame while only doing real work every 1.5–4 s (idle) or
+// 120–400 ms (processing). On weak tablet CPUs that perpetual wakeup
+// competes with the dashboard's own frame budget for zero visual benefit.
+// It is now a setTimeout chain: the timer fires exactly when the next lid
+// change is due, sleeps in between, and is tracked under 'lid-loop' so
+// stopAll() still guarantees zero leaks. CSS transitions interpolate the
+// lid movement, so timer jitter is invisible.
+
+function scheduleNextLid(card, delayMs) {
+  card.animator.setTimeout('lid-loop', () => lidTick(card), delayMs);
+}
+
+function lidTick(card) {
   const a = card.animator;
   const st = card._state; // post-G9 tracker
   if (st !== 'idle' && st !== 'processing') return; // state changed -> loop exits, applyState restarts it
-  if (now >= a._nextLidAt) {
-    if (st === 'idle') {
-      const val = Math.max(0, Math.min(1, a.currentBaseLid + (Math.random() - 0.5) * 0.15));
-      a.setLid(val, 0.5 + Math.random() * 0.8);
-      a._nextLidAt = now + 1500 + Math.random() * 2500;
-    } else {
-      const val = 0.5 + Math.random() * 0.35;
-      a.setLid(val, 0.15 + Math.random() * 0.25);
-      a._nextLidAt = now + 120 + Math.random() * 280;
-    }
+  if (st === 'idle') {
+    const val = Math.max(0, Math.min(1, a.currentBaseLid + (Math.random() - 0.5) * 0.15));
+    a.setLid(val, 0.5 + Math.random() * 0.8);
+    scheduleNextLid(card, 1500 + Math.random() * 2500);
+  } else {
+    const val = 0.5 + Math.random() * 0.35;
+    a.setLid(val, 0.15 + Math.random() * 0.25);
+    scheduleNextLid(card, 120 + Math.random() * 280);
   }
-  a.requestRaf('lid-loop', (t) => lidLoop(card, t));
 }
 
 export function startLidBehavior(card) {
   stopLidBehavior(card);
-  card.animator._nextLidAt = 0;
-  card.animator.requestRaf('lid-loop', (now) => lidLoop(card, now));
+  scheduleNextLid(card, 0);
 }
 
 export function stopLidBehavior(card) {
-  card.animator.cancelRaf('lid-loop');
+  card.animator.clearTimeout('lid-loop');
 }
 
 // ---- Weighted idle behaviors ----

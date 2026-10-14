@@ -28,6 +28,10 @@ export function buildEditorForm() {
         name: 'bpm_entity',
         selector: { entity: { filter: { domain: 'sensor' } } },
       },
+      {
+        name: 'mood_entity',
+        selector: { entity: { filter: { domain: 'sensor' } } },
+      },
       // ── Row: Response Delay | Zoom Scale ──
       {
         type: 'grid',
@@ -53,6 +57,18 @@ export function buildEditorForm() {
       // ── Appearance ──
       {
         name: 'transparent_bg',
+        default: false,
+        selector: { boolean: {} },
+      },
+      // ── Mood-Aware Dance Style ──
+      {
+        name: 'mood_style_enabled',
+        default: true,
+        selector: { boolean: {} },
+      },
+      // ── Perf Diagnostics (5.8.0) ──
+      {
+        name: 'debug_perf',
         default: false,
         selector: { boolean: {} },
       },
@@ -183,6 +199,9 @@ export function buildEditorForm() {
         respond_delay: 'Response Delay',
         zoom: 'Zoom Scale',
         transparent_bg: 'Transparent Background',
+        mood_entity: 'Mood Sensor Entity',
+        mood_style_enabled: 'Mood-Aware Dance Style',
+        debug_perf: 'Performance HUD',
         tap_enabled: 'Enable Tap to Bop',
         tap_action: 'Tap Action',
         tap_speed: 'Animation Speed',
@@ -211,6 +230,9 @@ export function buildEditorForm() {
         respond_delay: 'Seconds to wait before switching from Processing to Responding.',
         zoom: 'Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.',
         transparent_bg: 'Removes the card background, shadow, and border.',
+        mood_entity: 'The AX BPM integration\'s dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.',
+        mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
+        debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
         tap_enabled: 'Plays the bop animation when the card is tapped.',
         tap_action: 'Optional Home Assistant action fired on tap.',
         tap_speed: '0.1 = slow, 0.5 = normal, 2.0 = fast.',

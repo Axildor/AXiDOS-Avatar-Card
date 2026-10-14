@@ -9,6 +9,7 @@ function getStubConfig() {
     entity: "",
     media_entity: "",
     bpm_entity: "",
+    mood_entity: "",
     progress_entity: "",
     respond_delay: 0,
     zoom: 85,
@@ -20,6 +21,8 @@ function getStubConfig() {
     progress_max: 100,
     progress_dynamic_color: false,
     progress_invert_color: false,
+    mood_style_enabled: true,
+    debug_perf: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -47,6 +50,9 @@ function sanitizeConfig(config) {
     c.progress_min = 0;
     c.progress_max = 100;
   }
+  c.mood_style_enabled = c.mood_style_enabled !== false;
+  c.mood_entity = typeof c.mood_entity === "string" ? c.mood_entity : "";
+  c.debug_perf = c.debug_perf === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
   c.tap_intensity = clampNum(c.tap_intensity, 1, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
@@ -77,6 +83,10 @@ function buildEditorForm() {
         name: "bpm_entity",
         selector: { entity: { filter: { domain: "sensor" } } }
       },
+      {
+        name: "mood_entity",
+        selector: { entity: { filter: { domain: "sensor" } } }
+      },
       // ── Row: Response Delay | Zoom Scale ──
       {
         type: "grid",
@@ -102,6 +112,18 @@ function buildEditorForm() {
       // ── Appearance ──
       {
         name: "transparent_bg",
+        default: false,
+        selector: { boolean: {} }
+      },
+      // ── Mood-Aware Dance Style ──
+      {
+        name: "mood_style_enabled",
+        default: true,
+        selector: { boolean: {} }
+      },
+      // ── Perf Diagnostics (5.8.0) ──
+      {
+        name: "debug_perf",
         default: false,
         selector: { boolean: {} }
       },
@@ -230,6 +252,9 @@ function buildEditorForm() {
         respond_delay: "Response Delay",
         zoom: "Zoom Scale",
         transparent_bg: "Transparent Background",
+        mood_entity: "Mood Sensor Entity",
+        mood_style_enabled: "Mood-Aware Dance Style",
+        debug_perf: "Performance HUD",
         tap_enabled: "Enable Tap to Bop",
         tap_action: "Tap Action",
         tap_speed: "Animation Speed",
@@ -258,6 +283,9 @@ function buildEditorForm() {
         respond_delay: "Seconds to wait before switching from Processing to Responding.",
         zoom: "Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.",
         transparent_bg: "Removes the card background, shadow, and border.",
+        mood_entity: "The AX BPM integration's dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.",
+        mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
+        debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
         tap_enabled: "Plays the bop animation when the card is tapped.",
         tap_action: "Optional Home Assistant action fired on tap.",
         tap_speed: "0.1 = slow, 0.5 = normal, 2.0 = fast.",
@@ -288,6 +316,58 @@ function parseBpm(rawBpm) {
   const n = parseFloat(rawBpm);
   return isNaN(n) ? 120 : n;
 }
+function parseMood(attrs) {
+  const neutral = { present: false, tierShift: 0, energyBias: 0, lidFloor: null };
+  if (!attrs || typeof attrs !== "object") return neutral;
+  const scores = attrs.mood_scores;
+  if (!scores || typeof scores !== "object") return neutral;
+  const num = (v) => typeof v === "number" && Number.isFinite(v) ? v : null;
+  const aggressive = num(scores.aggressive);
+  const party = num(scores.party);
+  const relaxed = num(scores.relaxed);
+  if (aggressive === null && party === null && relaxed === null) return neutral;
+  const label = typeof attrs.mood_label === "string" ? attrs.mood_label.toLowerCase() : "";
+  const vals = [aggressive, party, relaxed].filter((v) => v !== null);
+  const maxScore = vals.length ? Math.max(...vals) : 0;
+  const labelScore = label === "aggressive" ? aggressive : label === "party" ? party : label === "relaxed" ? relaxed : null;
+  const dominant = labelScore !== null && labelScore >= MOOD_CONFIDENCE && labelScore >= maxScore;
+  let tierShift = 0;
+  let energyBias = 0;
+  let lidFloor = null;
+  if (dominant) {
+    if (label === "relaxed") {
+      tierShift = -1;
+      energyBias = -0.2;
+      lidFloor = MOOD_LID_RELAXED;
+    } else {
+      tierShift = 1;
+      energyBias = 0.2;
+      lidFloor = MOOD_LID_AWAKE;
+    }
+  } else {
+    const p = party || 0;
+    const ag = aggressive || 0;
+    const re = relaxed || 0;
+    energyBias = Math.max(-0.2, Math.min(0.2, (p * 0.6 + ag * 0.4 - re) * 0.3));
+  }
+  return { present: true, tierShift, energyBias, lidFloor };
+}
+var MOOD_CONFIDENCE = 0.4;
+function moodSignature(attrs) {
+  if (!attrs || typeof attrs !== "object" || !attrs.mood_scores || typeof attrs.mood_scores !== "object") return "";
+  const s = attrs.mood_scores;
+  const r2 = (v) => typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : "-";
+  return [
+    attrs.mood_label || "",
+    r2(s.aggressive),
+    r2(s.party),
+    r2(s.relaxed),
+    r2(s.electronic),
+    r2(s.acoustic)
+  ].join("|");
+}
+var MOOD_LID_RELAXED = 0.3;
+var MOOD_LID_AWAKE = 0.05;
 function parseProgress(raw, min = 0, max = 100) {
   if (raw === void 0 || raw === null) return null;
   const s = String(raw).trim().toLowerCase();
@@ -328,30 +408,29 @@ function verticalProgressDash(pct) {
 }
 
 // src/behaviors/idle.js
-function lidLoop(card, now) {
+function scheduleNextLid(card, delayMs) {
+  card.animator.setTimeout("lid-loop", () => lidTick(card), delayMs);
+}
+function lidTick(card) {
   const a = card.animator;
   const st = card._state;
   if (st !== "idle" && st !== "processing") return;
-  if (now >= a._nextLidAt) {
-    if (st === "idle") {
-      const val = Math.max(0, Math.min(1, a.currentBaseLid + (Math.random() - 0.5) * 0.15));
-      a.setLid(val, 0.5 + Math.random() * 0.8);
-      a._nextLidAt = now + 1500 + Math.random() * 2500;
-    } else {
-      const val = 0.5 + Math.random() * 0.35;
-      a.setLid(val, 0.15 + Math.random() * 0.25);
-      a._nextLidAt = now + 120 + Math.random() * 280;
-    }
+  if (st === "idle") {
+    const val = Math.max(0, Math.min(1, a.currentBaseLid + (Math.random() - 0.5) * 0.15));
+    a.setLid(val, 0.5 + Math.random() * 0.8);
+    scheduleNextLid(card, 1500 + Math.random() * 2500);
+  } else {
+    const val = 0.5 + Math.random() * 0.35;
+    a.setLid(val, 0.15 + Math.random() * 0.25);
+    scheduleNextLid(card, 120 + Math.random() * 280);
   }
-  a.requestRaf("lid-loop", (t) => lidLoop(card, t));
 }
 function startLidBehavior(card) {
   stopLidBehavior(card);
-  card.animator._nextLidAt = 0;
-  card.animator.requestRaf("lid-loop", (now) => lidLoop(card, now));
+  scheduleNextLid(card, 0);
 }
 function stopLidBehavior(card) {
-  card.animator.cancelRaf("lid-loop");
+  card.animator.clearTimeout("lid-loop");
 }
 var IDLE_BEHAVIORS = [
   {
@@ -565,7 +644,7 @@ var ENERGY_WINDOWS = [0.5, 0.75, 1, 0.6];
 var ENERGY_MIN = 0.3;
 var ENERGY_MAX = 1.1;
 var DART_MAX = [5, 6, 6, 9];
-function getEnergy(dancePhase) {
+function getEnergy(dancePhase, energyBias = 0) {
   const phase = (dancePhase % 64 + 64) % 64;
   const center = phase - 8;
   const seg = Math.floor(center / 16);
@@ -574,7 +653,7 @@ function getEnergy(dancePhase) {
   const to = ENERGY_WINDOWS[((seg + 1) % 4 + 4) % 4];
   const base = from + (to - from) * (0.5 - 0.5 * Math.cos(t * Math.PI));
   const wobble = 0.09 * Math.sin(2 * Math.PI * dancePhase / 97);
-  return Math.min(ENERGY_MAX, Math.max(ENERGY_MIN, base + wobble));
+  return Math.min(ENERGY_MAX, Math.max(ENERGY_MIN, base + wobble + energyBias));
 }
 var hit = (r, tx, ty, s, lid, durBeats, pump, dart) => ({
   r,
@@ -1220,26 +1299,35 @@ var DANCE_EASINGS = {
   hitOff: "cubic-bezier(0.2, 0.9, 0.3, 1)",
   flow: "cubic-bezier(0.42, 0, 0.58, 1)"
 };
+var DUR_REF_BPM = 110;
 var HIT_DOWN_EASE = DANCE_EASINGS.hitDown;
 var HIT_OFF_EASE = DANCE_EASINGS.hitOff;
 var FLOW_EASE = DANCE_EASINGS.flow;
-function startDanceCycle(card, bpm) {
+function startDanceCycle(card, bpm, mood) {
   const a = card.animator;
   stopDanceCycle(card);
   let dancePhase = 0;
   let currentBpm = Math.max(60, Math.min(200, bpm));
   let beatMs = 60 / currentBpm * 1e3;
   let beatSec = beatMs / 1e3;
-  let expectedNextTick = performance.now() + beatMs;
-  const tierIdx = tierForBpm(currentBpm);
+  let durBeatSec = Math.min(beatSec, 60 / DUR_REF_BPM);
+  let expectedNextTick = performance.now();
+  const m = mood && mood.present ? mood : null;
+  let energyBias = m ? m.energyBias : 0;
+  let lidFloor = m && m.lidFloor !== null && m.lidFloor !== void 0 ? m.lidFloor : null;
+  const tierIdx = effectiveTierForBpm(currentBpm, m);
   const eyeHitScale = [1.08, 1.1, 1.18, 1.25][tierIdx];
-  card._retuneDance = (newBpm) => {
+  card._retuneDance = (newBpm, newMood) => {
     const nb = Math.max(60, Math.min(200, newBpm));
-    if (tierForBpm(nb) !== tierIdx) return false;
-    if (nb === currentBpm) return true;
+    const nm = newMood && newMood.present ? newMood : null;
+    if (effectiveTierForBpm(nb, nm) !== tierIdx) return false;
+    if (nb === currentBpm && energyBias === (nm ? nm.energyBias : 0) && lidFloor === (nm && nm.lidFloor !== null && nm.lidFloor !== void 0 ? nm.lidFloor : null)) return true;
     currentBpm = nb;
     beatMs = 60 / nb * 1e3;
     beatSec = beatMs / 1e3;
+    durBeatSec = Math.min(beatSec, 60 / DUR_REF_BPM);
+    energyBias = nm ? nm.energyBias : 0;
+    lidFloor = nm && nm.lidFloor !== null && nm.lidFloor !== void 0 ? nm.lidFloor : null;
     expectedNextTick = performance.now() + beatMs;
     return true;
   };
@@ -1256,11 +1344,8 @@ function startDanceCycle(card, bpm) {
     const executeTick = () => {
       dancePhase++;
       const now = performance.now();
-      if (now > expectedNextTick + beatMs) {
-        expectedNextTick = now;
-      } else {
-        expectedNextTick += beatMs;
-      }
+      if (card.perf && now > expectedNextTick) card.perf.recordBeatLateness(now - expectedNextTick);
+      while (expectedNextTick <= now) expectedNextTick += beatMs;
       const delay = Math.max(0, expectedNextTick - now);
       a.setTimeout("dance-step", step, delay);
     };
@@ -1270,7 +1355,7 @@ function startDanceCycle(card, bpm) {
     }
     const b = dancePhase % 16;
     if (b === 0 && dancePhase > 0) {
-      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase), phraseCount);
+      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase, energyBias), phraseCount);
       phraseCount++;
       variant = phraseVariant(tierIdx, phraseId, phraseCount);
     }
@@ -1322,17 +1407,18 @@ function startDanceCycle(card, bpm) {
       }, beatMs * 0.5);
     }
     const maxBeats = move.flow ? FLOW_CLAMP_BEATS : HIT_CLAMP_BEATS;
-    let moveDur = Math.min(move.durBeats * beatSec, beatSec * maxBeats);
+    let moveDur = Math.min(move.durBeats * durBeatSec, durBeatSec * maxBeats);
     const ease = move.flow ? FLOW_EASE : isDownBeat ? HIT_DOWN_EASE : HIT_OFF_EASE;
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
     const swivelRot = move.r * -0.5;
     if (tierIdx >= 2 || lastSwivelRot !== swivelRot) {
-      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : durBeatSec * 3;
       a.setBodySwivel(swivelRot, 1, swivelDur);
       lastSwivelRot = swivelRot;
     }
-    const lid = Math.max(move.lid, currentBpm < 125 ? 0.15 : 0.08);
+    const bpmLidFloor = currentBpm < 125 ? 0.15 : 0.08;
+    const lid = Math.max(move.lid, lidFloor !== null ? Math.max(bpmLidFloor, lidFloor) : bpmLidFloor);
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
   };
@@ -1351,6 +1437,10 @@ var HIT_CLAMP_BEATS = 2;
 var FLOW_CLAMP_BEATS = 1.9;
 function tierForBpm(bpm) {
   return bpm < 90 ? 0 : bpm < 125 ? 1 : bpm < 160 ? 2 : 3;
+}
+function effectiveTierForBpm(bpm, mood) {
+  const shift = mood && mood.present ? mood.tierShift : 0;
+  return Math.min(3, Math.max(0, tierForBpm(bpm) + shift));
 }
 function stopDanceCycle(card) {
   const a = card.animator;
@@ -1594,7 +1684,7 @@ function resetAll(card) {
   a.el.eyeCenter.style.transform = "scale(1)";
   a.el.eyeCenter.style.transition = "fill 0.8s ease-in-out";
 }
-function applyStateVisuals(card, state, bpm) {
+function applyStateVisuals(card, state, bpm, mood) {
   const a = card.animator;
   resetAll(card);
   if (state === "idle") {
@@ -1622,7 +1712,7 @@ function applyStateVisuals(card, state, bpm) {
     a.setLEDs("#1DB954", "0.15");
     a.resetBodySwivel();
     if (card.config.progress_show_in_dance !== false) updateProgressRing(card);
-    startDanceCycle(card, bpm);
+    startDanceCycle(card, bpm, mood);
   } else if (state === "listening") {
     a.el.eyeLayerListen.style.opacity = "1";
     a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.8s";
@@ -1683,19 +1773,19 @@ function updateProgressRing(card) {
   ring.setAttribute("stroke", progressColor(pct, dynamic, inverted));
   ring.setAttribute("opacity", "1");
 }
-function applyState(card, mapped, bpm) {
+function applyState(card, mapped, bpm, mood) {
   const a = card.animator;
   a.clearTimeout("respond-delay");
   const delaySeconds = card.config.respond_delay !== void 0 ? parseFloat(card.config.respond_delay) : 0;
   if (mapped === "responding" && card._state !== "responding" && delaySeconds > 0) {
     a.setTimeout("respond-delay", () => {
       card._state = "responding";
-      applyStateVisuals(card, "responding", bpm);
+      applyStateVisuals(card, "responding", bpm, mood);
     }, delaySeconds * 1e3);
     return;
   }
   card._state = mapped;
-  applyStateVisuals(card, mapped, bpm);
+  applyStateVisuals(card, mapped, bpm, mood);
 }
 
 // src/hass-update.js
@@ -1710,17 +1800,23 @@ function applyHassUpdate(card, hass) {
   const entity = card.config.entity;
   const mediaEntity = card.config.media_entity;
   const bpmEntity = card.config.bpm_entity;
+  const moodEntity = card.config.mood_entity;
   const progressEntity = card.config.progress_entity;
   const newVoiceState = entity && hass.states[entity] ? hass.states[entity].state.toLowerCase() : "idle";
   const newMediaState = mediaEntity && hass.states[mediaEntity] ? hass.states[mediaEntity].state.toLowerCase() : "paused";
   const newBpmState = bpmEntity && hass.states[bpmEntity] ? hass.states[bpmEntity].state : "120";
   const newProgressState = progressEntity && hass.states[progressEntity] ? hass.states[progressEntity].state : null;
+  const moodState = moodEntity && hass.states[moodEntity] ? hass.states[moodEntity] : null;
+  const moodUsable = moodState && moodState.state !== "unknown" && moodState.state !== "unavailable";
+  const newMoodAttrs = moodUsable ? { mood_label: moodState.state, ...moodState.attributes } : null;
+  const newMoodSig = moodSignature(newMoodAttrs);
   const mapped = resolveState(newVoiceState, newMediaState);
-  if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && mapped === card._state) return false;
+  if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && card._lastHassMood === newMoodSig && mapped === card._state) return false;
   card._lastHassVoice = newVoiceState;
   card._lastHassMedia = newMediaState;
   card._lastHassBpm = newBpmState;
   card._lastHassProgress = newProgressState;
+  card._lastHassMood = newMoodSig;
   const prevProgress = card._progressPct;
   card._progressPct = parseProgress(newProgressState, card.config.progress_min, card.config.progress_max);
   const ringLive = card._state === "idle" || card._state === "dancing" && card.config.progress_show_in_dance !== false;
@@ -1729,14 +1825,17 @@ function applyHassUpdate(card, hass) {
   }
   const currentBpm = parseBpm(newBpmState);
   const prevState = card._state;
+  const mood = card.config.mood_style_enabled !== false ? parseMood(newMoodAttrs) : null;
   try {
     if (card._state !== mapped) {
       card._currentBpm = currentBpm;
-      applyState(card, mapped, currentBpm);
-    } else if (mapped === "dancing" && card._currentBpm !== currentBpm) {
+      card._currentMood = mood;
+      applyState(card, mapped, currentBpm, mood);
+    } else if (mapped === "dancing" && (card._currentBpm !== currentBpm || card._currentMood !== mood)) {
       card._currentBpm = currentBpm;
-      const retuned = typeof card._retuneDance === "function" && card._retuneDance(currentBpm);
-      if (!retuned) applyState(card, mapped, currentBpm);
+      card._currentMood = mood;
+      const retuned = typeof card._retuneDance === "function" && card._retuneDance(currentBpm, mood);
+      if (!retuned) applyState(card, mapped, currentBpm, mood);
     } else if (mapped !== "responding") {
       card.animator.clearTimeout("respond-delay");
     }
@@ -2105,6 +2204,9 @@ var AxidosAnimator = class {
     this.setLid(amount, dur);
   }
   setPupil(px, py) {
+    if (px === this._lastPupilX && py === this._lastPupilY) return;
+    this._lastPupilX = px;
+    this._lastPupilY = py;
     this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
     const ey = py * 1.5;
     this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;
@@ -2182,6 +2284,101 @@ var AxidosAnimator = class {
   }
 };
 
+// src/perf.js
+var JANK_THRESHOLD_MS = 50;
+var HUD_REFRESH_MS = 500;
+var BEAT_WINDOW = 32;
+var PerfMonitor = class {
+  /**
+   * @param {ShadowRoot} shadowRoot - the card's shadow root (HUD appended here)
+   * @param {HTMLElement} host - the card host element (for size context)
+   */
+  constructor(shadowRoot) {
+    this._shadow = shadowRoot;
+    this._rafId = null;
+    this._lastFrame = null;
+    this._frameCount = 0;
+    this._windowStart = null;
+    this._fps = 0;
+    this._jankCount = 0;
+    this._worstFrame = 0;
+    this._beatLates = [];
+    this._hudTimer = null;
+    const hud = document.createElement("div");
+    hud.className = "axidos-perf-hud";
+    hud.setAttribute("part", "perf-hud");
+    hud.style.cssText = [
+      "position:absolute",
+      "top:2px",
+      "left:2px",
+      "z-index:10",
+      "pointer-events:none",
+      "font:10px/1.35 monospace",
+      "color:#7fff7f",
+      "background:rgba(0,0,0,0.55)",
+      "padding:3px 6px",
+      "border-radius:4px",
+      "white-space:pre",
+      "text-align:left"
+    ].join(";");
+    hud.textContent = "perf: starting\u2026";
+    shadowRoot.appendChild(hud);
+    this._hud = hud;
+    this._start();
+  }
+  // ---- Beat-lateness probe (called from dance.js executeTick) ----
+  /** Record one beat-timer lateness sample (ms late; clamped ≥ 0). */
+  recordBeatLateness(lateMs) {
+    if (typeof lateMs !== "number" || !Number.isFinite(lateMs)) return;
+    this._beatLates.push(Math.max(0, lateMs));
+    if (this._beatLates.length > BEAT_WINDOW) this._beatLates.shift();
+  }
+  // ---- Frame sampler ----
+  _start() {
+    const sample = (now) => {
+      if (this._lastFrame !== null) {
+        const dt = now - this._lastFrame;
+        this._frameCount++;
+        if (dt > JANK_THRESHOLD_MS) this._jankCount++;
+        if (dt > this._worstFrame) this._worstFrame = dt;
+        if (this._windowStart === null) this._windowStart = now;
+        else if (now - this._windowStart >= 2e3) {
+          this._fps = Math.round(this._frameCount * 1e3 / (now - this._windowStart));
+          this._frameCount = 0;
+          this._windowStart = now;
+        }
+      }
+      this._lastFrame = now;
+      this._rafId = requestAnimationFrame(sample);
+    };
+    this._rafId = requestAnimationFrame(sample);
+    this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
+  }
+  _renderHud() {
+    let beatLine = "beat late: \u2014";
+    if (this._beatLates.length > 0) {
+      const arr = this._beatLates;
+      const sum = arr.reduce((s, v) => s + v, 0);
+      const min = Math.round(Math.min(...arr));
+      const max = Math.round(Math.max(...arr));
+      const avg = Math.round(sum / arr.length);
+      beatLine = `beat late: ${min}/${avg}/${max} ms`;
+    }
+    this._hud.textContent = `fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms
+${beatLine}`;
+    this._worstFrame = 0;
+  }
+  /** Stop the sampler and remove the HUD. */
+  destroy() {
+    if (this._rafId !== null) cancelAnimationFrame(this._rafId);
+    this._rafId = null;
+    if (this._hudTimer !== null) clearInterval(this._hudTimer);
+    this._hudTimer = null;
+    if (this._hud && this._hud.parentNode) this._hud.parentNode.removeChild(this._hud);
+    this._hud = null;
+  }
+};
+
 // src/axidos-card.js
 var AxidosCard = class extends HTMLElement {
   constructor() {
@@ -2191,12 +2388,17 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassMedia = null;
     this._lastHassBpm = null;
     this._lastHassProgress = null;
+    this._lastHassMood = null;
     this._progressPct = null;
     this._state = "idle";
     this._currentBpm = 120;
+    this._currentMood = null;
     this._bopping = false;
     this._bopSpring = null;
     this.animator = null;
+    this.perf = null;
+    this._offscreen = false;
+    this._intersectionObserver = null;
     this.contentReady = false;
   }
   // Native HA form editor: HA renders <ha-form> from this schema (same
@@ -2214,7 +2416,7 @@ var AxidosCard = class extends HTMLElement {
       this._teardownAnimation();
       this.setupDOM();
       this.initAxidos();
-      applyState(this, prevState || "idle", this._currentBpm);
+      applyState(this, prevState || "idle", this._currentBpm, this._currentMood);
       updateProgressRing(this);
     }
   }
@@ -2242,15 +2444,54 @@ var AxidosCard = class extends HTMLElement {
     this._bopping = false;
     this._bopSpring = null;
   }
+  /**
+   * Offscreen pause (5.8.0): an IntersectionObserver on the host stops ALL
+   * behavior engines when the card scrolls out of the dashboard viewport and
+   * re-applies the current state on re-entry. Mirrors the document.hidden
+   * handler below — on a tablet dashboard the card can sit offscreen in a
+   * long view while the (weak) CPU keeps paying for its full animation
+   * budget. Threshold 0.05 = any meaningful visibility counts as onscreen;
+   * the observer is only attached when IntersectionObserver exists (all
+   * modern WebViews do; the guard keeps stub environments safe).
+   */
+  _setupOffscreenPause() {
+    if (typeof IntersectionObserver !== "function") return;
+    if (this._intersectionObserver) this._intersectionObserver.disconnect();
+    this._intersectionObserver = new IntersectionObserver((entries) => {
+      const visible = entries.some((e) => e.isIntersecting);
+      if (!this.isConnected || !this.contentReady) return;
+      if (!visible && !this._offscreen) {
+        this._offscreen = true;
+        this._teardownAnimation();
+        this.animator.el.svg.style.animationPlayState = "paused";
+        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
+          e.style.animationPlayState = "paused";
+        });
+      } else if (visible && this._offscreen) {
+        this._offscreen = false;
+        this.animator.el.svg.style.animationPlayState = "";
+        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
+          e.style.animationPlayState = "";
+        });
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
+      }
+    }, { threshold: 0.05 });
+    this._intersectionObserver.observe(this);
+  }
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
   connectedCallback() {
     if (this._boundVisibility) {
       document.addEventListener("visibilitychange", this._boundVisibility);
     }
+    this._setupOffscreenPause();
+    if (this.contentReady && this.config?.debug_perf === true && !this.perf) {
+      this.perf = new PerfMonitor(this.shadowRoot);
+    }
     this._lastHassVoice = null;
     this._lastHassMedia = null;
     this._lastHassBpm = null;
     this._lastHassProgress = null;
+    this._lastHassMood = null;
     if (this.contentReady) {
       if (this._hitbox) {
         if (this._tapHandler) this._hitbox.addEventListener("click", this._tapHandler);
@@ -2268,7 +2509,7 @@ var AxidosCard = class extends HTMLElement {
         });
       });
       if (this._state) {
-        applyState(this, this._state, this._currentBpm);
+        applyState(this, this._state, this._currentBpm, this._currentMood);
       }
     }
   }
@@ -2278,12 +2519,28 @@ var AxidosCard = class extends HTMLElement {
       if (this._keyHandler) this._hitbox.removeEventListener("keydown", this._keyHandler);
     }
     this._teardownAnimation();
+    if (this.perf) {
+      this.perf.destroy();
+      this.perf = null;
+    }
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+      this._intersectionObserver = null;
+    }
+    this._offscreen = false;
     if (this._boundVisibility) {
       document.removeEventListener("visibilitychange", this._boundVisibility);
     }
   }
   setupDOM() {
     this.shadowRoot.innerHTML = buildTemplate(this.config);
+    if (this.perf) {
+      this.perf.destroy();
+      this.perf = null;
+    }
+    if (this.config.debug_perf === true) {
+      this.perf = new PerfMonitor(this.shadowRoot);
+    }
   }
   initAxidos() {
     this.animator = new AxidosAnimator(this.shadowRoot);
@@ -2336,7 +2593,7 @@ var AxidosCard = class extends HTMLElement {
         this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
           e.style.animationPlayState = "";
         });
-        applyState(this, this._state, this._currentBpm || 120);
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     };
     if (this._boundVisibility) document.removeEventListener("visibilitychange", this._boundVisibility);

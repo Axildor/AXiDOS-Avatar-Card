@@ -46,7 +46,9 @@
  *  A5. Strobe phrase exists in tier 3 (strobe: true).
  */
 
-import { startDanceCycle, stopDanceCycle, DANCE_EASINGS } from '../src/behaviors/dance.js';
+import {
+  startDanceCycle, stopDanceCycle, DANCE_EASINGS, DUR_REF_BPM,
+} from '../src/behaviors/dance.js';
 import {
   TIERS, getEnergy, pickNextPhrase, phraseVariant, getBeatPose,
 } from '../src/behaviors/choreography.js';
@@ -461,6 +463,95 @@ for (const tier of TIERS_BPM) {
     const m1 = getBeatPose(1, idx, 1, v, 1);
     const decoupled = m0.ty === 0 && m1.ty > 0 && m0.r > m1.r; // ty pattern ≠ r pattern
     assert(decoupled, 'A6: tier-1 array-tilt runs ty on its own pattern (r=[10,5,-10,-5], ty=[0,8,0,8])');
+  }
+}
+
+// 14. Tempo-compensated duration beat (5.5.2): below the reference tempo,
+//     move durations are floored at the reference beat so travel velocity
+//     never collapses into slow motion; at/above the reference tempo the
+//     compensation is a no-op. The beat CLOCK stays on the true BPM.
+{
+  console.log('\n== tempo-compensated duration beat ==');
+  const refBeatSec = 60 / DUR_REF_BPM;
+
+  // 14a. Low-BPM velocity floor: at 70 BPM every moveDur must be capped at
+  //      durBeats * refBeatSec (the compensated beat), i.e. strictly faster
+  //      than the raw beat-scaled duration for durBeats > refBeatSec/beatSec.
+  {
+    const card = makeCard();
+    startDanceCycle(card, 70);
+    runBeats(card, 64);
+    const beatSec = 60 / 70;
+    const walk = simulateWalk(0, card.animator._headCalls.length);
+    let floorOk = true;
+    card.animator._headCalls.forEach((c, i) => {
+      const m = walk[i].move;
+      const expected = Math.min(m.durBeats * refBeatSec, refBeatSec * (m.flow ? 1.9 : 2.0));
+      if (Math.abs(c.dur - expected) > 1e-9) {
+        floorOk = false;
+        console.error(`    call ${i} (beat ${walk[i].b}): dur ${c.dur.toFixed(3)}s != compensated ${expected.toFixed(3)}s`);
+      }
+    });
+    assert(floorOk, `70 BPM: moveDurs use the compensated beat (${refBeatSec.toFixed(3)}s) — velocity floored at reference tempo`);
+    // The compensation must actually bite at 70 BPM (raw beat > ref beat).
+    assert(beatSec > refBeatSec, '70 BPM raw beat is longer than the reference beat (compensation is active)');
+    stopDanceCycle(card);
+  }
+
+  // 14b. High-BPM no-op: at 140 BPM the raw beat is shorter than the
+  //      reference beat, so durations must be IDENTICAL to the raw
+  //      beat-scaled math (club/hardcore tiers untouched).
+  {
+    const card = makeCard();
+    startDanceCycle(card, 140);
+    runBeats(card, 64);
+    const beatSec = 60 / 140;
+    const walk = simulateWalk(2, card.animator._headCalls.length);
+    let noopOk = true;
+    card.animator._headCalls.forEach((c, i) => {
+      const m = walk[i].move;
+      const expected = Math.min(m.durBeats * beatSec, beatSec * (m.flow ? 1.9 : 2.0));
+      if (Math.abs(c.dur - expected) > 1e-9) {
+        noopOk = false;
+        console.error(`    call ${i} (beat ${walk[i].b}): dur ${c.dur.toFixed(3)}s != raw ${expected.toFixed(3)}s`);
+      }
+    });
+    assert(noopOk, `140 BPM: moveDurs unchanged (raw beat ${beatSec.toFixed(3)}s < reference ${refBeatSec.toFixed(3)}s — no-op)`);
+    stopDanceCycle(card);
+  }
+
+  // 14c. Beat clock stays on the true BPM: the dance-step timer delay must
+  //      still be the raw beat interval at 70 BPM (poses land on the music).
+  //      A fake clock that advances exactly one beat per invocation is used:
+  //      with the REAL clock the manual stub invocations take ~0 ms, so the
+  //      drift-corrected scheduler legitimately accumulates delay.
+  {
+    const beatMs = (60 / 70) * 1000;
+    let fakeNow = performance.now();
+    const realNow = performance.now.bind(performance);
+    performance.now = () => fakeNow;
+    const advance = () => { fakeNow += beatMs; };
+    const origRun = runBeats;
+    const card = makeCard();
+    startDanceCycle(card, 70);
+    for (let i = 0; i < 8; i++) { advance(); origRun(card, 1); }
+    performance.now = realNow;
+    const t = card.animator._timers.get('dance-step');
+    assert(t && Math.abs(t.delay - beatMs) < 1e-6,
+      `beat clock on true BPM (step delay ${t ? t.delay.toFixed(1) : 'none'}ms vs ${(beatMs).toFixed(1)}ms beat)`);
+    stopDanceCycle(card);
+  }
+
+  // 14d. Tier 0/1 swivel uses the compensated beat; tier 2/3 keep raw.
+  {
+    const card = makeCard();
+    startDanceCycle(card, 70);
+    runBeats(card, 4);
+    const swivels = card.animator._swivelCalls;
+    const expected = refBeatSec * 3;
+    const swivelOk = swivels.length > 0 && swivels.every((s) => Math.abs(s.dur - expected) < 1e-9);
+    assert(swivelOk, `70 BPM tier-0 swivel uses the compensated beat (${expected.toFixed(3)}s, was ${(60 / 70 * 3).toFixed(3)}s)`);
+    stopDanceCycle(card);
   }
 }
 

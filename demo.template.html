@@ -203,6 +203,14 @@
       <input type="range" id="bpm-slider" min="60" max="200" step="1" value="120">
     </div>
 
+    <h2>Mood (AX BPM mood entity)</h2>
+    <div class="btn-row" id="mood-buttons">
+      <button data-mood="none" class="active">None</button>
+      <button data-mood="relaxed">Relaxed</button>
+      <button data-mood="party">Party</button>
+      <button data-mood="aggressive">Aggressive</button>
+    </div>
+
     <h2>Backdrop (for screenshots)</h2>
     <div class="btn-row" id="theme-buttons">
       <button data-theme="dark" class="active">HA Dark</button>
@@ -260,6 +268,11 @@
       <input type="text" id="cfg-bpm" placeholder="sensor.demo_bpm">
       <small>Sensor providing the current song BPM. Defaults to 120.</small>
     </div>
+    <div class="field">
+      <label for="cfg-mood">Mood Sensor Entity</label>
+      <input type="text" id="cfg-mood" placeholder="sensor.demo_mood">
+      <small>AX BPM mood sensor (3.3.0+). Enables mood-aware dance style.</small>
+    </div>
 
     <div class="grid2">
       <div class="field">
@@ -277,6 +290,11 @@
     <div class="switch-row">
       <span>Transparent Background</span>
       <input type="checkbox" id="cfg-transparent">
+    </div>
+    <div class="switch-row">
+      <span>Performance HUD</span>
+      <input type="checkbox" id="cfg-perf">
+      <small>FPS / jank / beat-lateness overlay for diagnosing stutter on tablets.</small>
     </div>
 
     <details>
@@ -344,14 +362,17 @@
   const VOICE = 'assist_satellite.demo';
   const MEDIA = 'media_player.demo';
   const BPM_SENSOR = 'sensor.demo_bpm';
+  const MOOD_SENSOR = 'sensor.demo_mood';
 
   const DEFAULT_CONFIG = {
     entity: VOICE,
     media_entity: MEDIA,
     bpm_entity: BPM_SENSOR,
+    mood_entity: MOOD_SENSOR,
     respond_delay: 0,
     zoom: 85,
     transparent_bg: false,
+    debug_perf: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -364,14 +385,38 @@
     voice: 'idle',     // raw assist_satellite state string
     media: 'paused',   // raw media_player state string
     bpm: '120',        // raw sensor state string
+    mood: 'none',      // mood preset driving the mood entity
+  };
+
+  // Mood presets mirror the AX BPM mood entity's shape (3.3.0+): the STATE
+  // is the mood label, the ATTRIBUTES carry mood_scores — so the demo
+  // exercises the exact production parseMood() path.
+  const MOOD_PRESETS = {
+    none: null,
+    relaxed: {
+      state: 'relaxed',
+      attributes: { mood_scores: { aggressive: 0.0091, party: 0.0457, relaxed: 0.9405, electronic: 0.1912, acoustic: 0.613 } },
+    },
+    party: {
+      state: 'party',
+      attributes: { mood_scores: { aggressive: 0.0091, party: 0.9457, relaxed: 0.4405, electronic: 0.1912, acoustic: 0.013 } },
+    },
+    aggressive: {
+      state: 'aggressive',
+      attributes: { mood_scores: { aggressive: 0.881, party: 0.3457, relaxed: 0.0405, electronic: 0.5912, acoustic: 0.013 } },
+    },
   };
 
   function buildHass() {
+    const moodPreset = MOOD_PRESETS[mock.mood];
     return {
       states: {
         [VOICE]: { state: mock.voice },
         [MEDIA]: { state: mock.media },
-        [BPM_SENSOR]: { state: mock.bpm },
+        [BPM_SENSOR]: { state: mock.bpm, attributes: {} },
+        [MOOD_SENSOR]: moodPreset
+          ? { state: moodPreset.state, attributes: moodPreset.attributes }
+          : { state: 'unknown', attributes: {} },
       },
     };
   }
@@ -421,6 +466,17 @@
     bpmOut.textContent = bpmSlider.value;
     pushHass();
   });
+
+  // ============================================================
+  // Mood preset buttons — feed the sensor's mood attributes so the
+  // dance style shifts (tier + energy) exactly as with the real sensor.
+  // ============================================================
+  const moodButtons = [...document.querySelectorAll('#mood-buttons button')];
+  moodButtons.forEach((b) => b.addEventListener('click', () => {
+    mock.mood = b.dataset.mood;
+    moodButtons.forEach((x) => x.classList.toggle('active', x === b));
+    pushHass();
+  }));
 
   // ============================================================
   // Theme switcher
@@ -491,9 +547,11 @@
     $('cfg-entity').value = currentConfig.entity || '';
     $('cfg-media').value = currentConfig.media_entity || '';
     $('cfg-bpm').value = currentConfig.bpm_entity || '';
+    $('cfg-mood').value = currentConfig.mood_entity || '';
     $('cfg-delay').value = currentConfig.respond_delay ?? 0;
     $('cfg-zoom').value = currentConfig.zoom ?? 85;
     $('cfg-transparent').checked = !!currentConfig.transparent_bg;
+    $('cfg-perf').checked = currentConfig.debug_perf === true;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -518,9 +576,11 @@
       entity: $('cfg-entity').value.trim() || VOICE,
       media_entity: $('cfg-media').value.trim(),
       bpm_entity: $('cfg-bpm').value.trim(),
+      mood_entity: $('cfg-mood').value.trim(),
       respond_delay: parseFloat($('cfg-delay').value),
       zoom: parseInt($('cfg-zoom').value, 10),
       transparent_bg: $('cfg-transparent').checked,
+      debug_perf: $('cfg-perf').checked,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),

@@ -13,6 +13,7 @@ import { buildTemplate } from './template.js';
 import { AxidosAnimator } from './animator.js';
 import { applyState, updateProgressRing } from './states.js';
 import { bopHead } from './behaviors/bop.js';
+import { PerfMonitor } from './perf.js';
 
 export class AxidosCard extends HTMLElement {
   constructor() {
@@ -22,12 +23,17 @@ export class AxidosCard extends HTMLElement {
     this._lastHassMedia = null;
     this._lastHassBpm = null;
     this._lastHassProgress = null;
+    this._lastHassMood = null;
     this._progressPct = null;
     this._state = 'idle';
     this._currentBpm = 120;
+    this._currentMood = null;
     this._bopping = false;
     this._bopSpring = null;
     this.animator = null;
+    this.perf = null;
+    this._offscreen = false;
+    this._intersectionObserver = null;
     this.contentReady = false;
   }
 
@@ -44,7 +50,7 @@ export class AxidosCard extends HTMLElement {
       this._teardownAnimation();
       this.setupDOM();
       this.initAxidos();
-      applyState(this, prevState || 'idle', this._currentBpm);
+      applyState(this, prevState || 'idle', this._currentBpm, this._currentMood);
       // Re-render the ring after a config change (entity swap, color toggles)
       // — applyState only renders it in idle, so force a refresh here too.
       updateProgressRing(this);
@@ -88,10 +94,49 @@ export class AxidosCard extends HTMLElement {
     this._bopSpring = null;
   }
 
+  /**
+   * Offscreen pause (5.8.0): an IntersectionObserver on the host stops ALL
+   * behavior engines when the card scrolls out of the dashboard viewport and
+   * re-applies the current state on re-entry. Mirrors the document.hidden
+   * handler below — on a tablet dashboard the card can sit offscreen in a
+   * long view while the (weak) CPU keeps paying for its full animation
+   * budget. Threshold 0.05 = any meaningful visibility counts as onscreen;
+   * the observer is only attached when IntersectionObserver exists (all
+   * modern WebViews do; the guard keeps stub environments safe).
+   */
+  _setupOffscreenPause() {
+    if (typeof IntersectionObserver !== 'function') return;
+    if (this._intersectionObserver) this._intersectionObserver.disconnect();
+    this._intersectionObserver = new IntersectionObserver((entries) => {
+      const visible = entries.some((e) => e.isIntersecting);
+      if (!this.isConnected || !this.contentReady) return;
+      if (!visible && !this._offscreen) {
+        this._offscreen = true;
+        this._teardownAnimation();
+        this.animator.el.svg.style.animationPlayState = 'paused';
+        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = 'paused'; });
+      } else if (visible && this._offscreen) {
+        this._offscreen = false;
+        this.animator.el.svg.style.animationPlayState = '';
+        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = ''; });
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
+      }
+    }, { threshold: 0.05 });
+    this._intersectionObserver.observe(this);
+  }
+
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
   connectedCallback() {
     if (this._boundVisibility) {
       document.addEventListener('visibilitychange', this._boundVisibility);
+    }
+    // Re-arm the offscreen observer on every re-attach (HA's renderer
+    // detaches/re-attaches card elements without recreating them).
+    this._setupOffscreenPause();
+    // Recreate the perf HUD if it was destroyed on disconnect (the HUD
+    // element itself was removed with the sampler).
+    if (this.contentReady && this.config?.debug_perf === true && !this.perf) {
+      this.perf = new PerfMonitor(this.shadowRoot);
     }
     // Reset the raw-state caches: HA's renderer (sections, lazy load, edit
     // mode) detaches and re-attaches card elements without recreating them.
@@ -102,6 +147,7 @@ export class AxidosCard extends HTMLElement {
     this._lastHassMedia = null;
     this._lastHassBpm = null;
     this._lastHassProgress = null;
+    this._lastHassMood = null;
     if (this.contentReady) {
       // Re-attach tap/keyboard handlers: HA's renderer (sections, lazy load,
       // edit mode) detaches and re-attaches card elements without recreating
@@ -119,7 +165,7 @@ export class AxidosCard extends HTMLElement {
         });
       });
       if (this._state) {
-        applyState(this, this._state, this._currentBpm);
+        applyState(this, this._state, this._currentBpm, this._currentMood);
       }
     }
   }
@@ -130,6 +176,14 @@ export class AxidosCard extends HTMLElement {
       if (this._keyHandler) this._hitbox.removeEventListener('keydown', this._keyHandler);
     }
     this._teardownAnimation();
+    // Stop the perf sampler while detached (its RAF would keep firing);
+    // connectedCallback recreates it if debug_perf is on.
+    if (this.perf) { this.perf.destroy(); this.perf = null; }
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+      this._intersectionObserver = null;
+    }
+    this._offscreen = false;
     if (this._boundVisibility) {
       document.removeEventListener('visibilitychange', this._boundVisibility);
     }
@@ -137,6 +191,13 @@ export class AxidosCard extends HTMLElement {
 
   setupDOM() {
     this.shadowRoot.innerHTML = buildTemplate(this.config);
+    // Perf HUD (5.8.0): opt-in on-card diagnostics for devices without
+    // developer tools. Destroyed and rebuilt with the DOM so a config change
+    // (debug_perf toggle) always reflects the current setting.
+    if (this.perf) { this.perf.destroy(); this.perf = null; }
+    if (this.config.debug_perf === true) {
+      this.perf = new PerfMonitor(this.shadowRoot);
+    }
   }
 
   initAxidos() {
@@ -191,7 +252,7 @@ export class AxidosCard extends HTMLElement {
       } else {
         this.animator.el.svg.style.animationPlayState = '';
         this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = ''; });
-        applyState(this, this._state, this._currentBpm || 120);
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     };
 

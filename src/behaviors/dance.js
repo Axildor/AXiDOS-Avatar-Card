@@ -48,11 +48,21 @@ export const DANCE_EASINGS = {
   hitOff: 'cubic-bezier(0.2, 0.9, 0.3, 1)',
   flow: 'cubic-bezier(0.42, 0, 0.58, 1)',
 };
+
+// Tempo-compensated duration beat (5.5.2): move durations scale with the
+// beat, so at low BPM the fixed deg/px amplitudes crawl — at 70 BPM a
+// 1.2-beat glide takes ~1.03 s for ~11 px of travel, which reads as slow
+// motion. DUR_REF_BPM floors the DURATION beat at the reference tempo so
+// travel velocity never drops below the reference speed. The beat CLOCK
+// stays on the true BPM (poses still land on the music's beats); only
+// moveDur and the tier 0/1 swivel duration use the compensated beat. At or
+// above the reference tempo this is a no-op (min() picks beatSec).
+export const DUR_REF_BPM = 110;
 const HIT_DOWN_EASE = DANCE_EASINGS.hitDown;
 const HIT_OFF_EASE = DANCE_EASINGS.hitOff;
 const FLOW_EASE = DANCE_EASINGS.flow;
 
-export function startDanceCycle(card, bpm) {
+export function startDanceCycle(card, bpm, mood) {
   const a = card.animator;
   stopDanceCycle(card);
 
@@ -60,23 +70,45 @@ export function startDanceCycle(card, bpm) {
   let currentBpm = Math.max(60, Math.min(200, bpm));
   let beatMs = (60 / currentBpm) * 1000;
   let beatSec = beatMs / 1000;
-  let expectedNextTick = performance.now() + beatMs;
+  // Duration beat: floored at the reference tempo so low-BPM moves keep
+  // reference-tempo travel velocity (see DUR_REF_BPM above).
+  let durBeatSec = Math.min(beatSec, 60 / DUR_REF_BPM);
+  // Anchor at NOW, not now+beat: the first synchronous step() runs at t0 and
+  // executeTick() advances the anchor by one beat — initializing at t0+beat
+  // double-counted the first slot, so the second pose fired a full 2 beats
+  // after the first (one skipped beat at every dance start).
+  let expectedNextTick = performance.now();
 
-  const tierIdx = tierForBpm(currentBpm);
+  // Mood-aware style (5.6.0): the phrase LIBRARY tier is the BPM tier plus
+  // the mood's tier shift, clamped to the valid range. The beat CLOCK stays
+  // on the true BPM — poses still land on the music's beats; only the
+  // movement vocabulary changes (a relaxed 130 BPM track dances chill moves
+  // at 130 BPM tempo, not slowed-down grooving).
+  const m = mood && mood.present ? mood : null;
+  let energyBias = m ? m.energyBias : 0;
+  let lidFloor = m && m.lidFloor !== null && m.lidFloor !== undefined ? m.lidFloor : null;
+  const tierIdx = effectiveTierForBpm(currentBpm, m);
   const eyeHitScale = [1.08, 1.1, 1.18, 1.25][tierIdx];   // tier-scaled eye pulse
 
-  // ---- In-place BPM retune (hysteresis against sensor jitter) ----
-  // A same-tier BPM change retunes the beat clock WITHOUT resetting
-  // dancePhase/phraseId/phraseCount — the choreography continues seamlessly
-  // at the new tempo. Cross-tier changes return false: the phrase library
-  // itself differs, so the caller must do a full restart.
-  card._retuneDance = (newBpm) => {
+  // ---- In-place BPM/mood retune (hysteresis against sensor jitter) ----
+  // A same-EFFECTIVE-tier change retunes the beat clock and mood directives
+  // WITHOUT resetting dancePhase/phraseId/phraseCount — the choreography
+  // continues seamlessly at the new tempo/style. A change that moves the
+  // effective tier (BPM crossing a tier boundary, or a mood tier shift
+  // flipping) returns false: the phrase library itself differs, so the
+  // caller must do a full restart.
+  card._retuneDance = (newBpm, newMood) => {
     const nb = Math.max(60, Math.min(200, newBpm));
-    if (tierForBpm(nb) !== tierIdx) return false;
-    if (nb === currentBpm) return true;
+    const nm = newMood && newMood.present ? newMood : null;
+    if (effectiveTierForBpm(nb, nm) !== tierIdx) return false;
+    if (nb === currentBpm && energyBias === (nm ? nm.energyBias : 0)
+      && lidFloor === (nm && nm.lidFloor !== null && nm.lidFloor !== undefined ? nm.lidFloor : null)) return true;
     currentBpm = nb;
     beatMs = (60 / nb) * 1000;
     beatSec = beatMs / 1000;
+    durBeatSec = Math.min(beatSec, 60 / DUR_REF_BPM);
+    energyBias = nm ? nm.energyBias : 0;
+    lidFloor = nm && nm.lidFloor !== null && nm.lidFloor !== undefined ? nm.lidFloor : null;
     // Re-anchor the next tick from now: the beat INTERVAL changes, the
     // phase (dancePhase count) does not — no visual discontinuity.
     expectedNextTick = performance.now() + beatMs;
@@ -109,7 +141,20 @@ export function startDanceCycle(card, bpm) {
     const executeTick = () => {
       dancePhase++;
       const now = performance.now();
-      if (now > expectedNextTick + beatMs) { expectedNextTick = now; } else { expectedNextTick += beatMs; }
+      // Beat-lateness probe (5.8.0): how late did THIS tick fire relative to
+      // its scheduled slot? Positive = the main thread was busy and the pose
+      // fired off-grid — the direct measurement behind the "skips a beat and
+      // catches up" feel. Reported to the opt-in perf HUD only.
+      if (card.perf && now > expectedNextTick) card.perf.recordBeatLateness(now - expectedNextTick);
+      // Phase preservation (5.8.0): advance the grid in whole-beat steps
+      // until it lies in the future. The old rule re-anchored the grid to
+      // `now` when a timer fired more than one beat late — the pose grid
+      // SHIFTED, the next pose fired instantly, and the choreography read as
+      // "skips a beat and fast-forwards". With whole-beat advancement the
+      // grid stays locked to the music's beat positions forever: a late tick
+      // fires a late pose, and any fully-missed beats are simply skipped
+      // without displacing the phase of the ones that follow.
+      while (expectedNextTick <= now) expectedNextTick += beatMs;
       const delay = Math.max(0, expectedNextTick - now);
       a.setTimeout('dance-step', step, delay);
     };
@@ -128,7 +173,7 @@ export function startDanceCycle(card, bpm) {
     // picked HERE, at the switch, gated by the switch-time energy (no
     // lookahead): peak phrases only enter high-energy windows.
     if (b === 0 && dancePhase > 0) {
-      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase), phraseCount);
+      phraseId = pickNextPhrase(tierIdx, phraseId, getEnergy(dancePhase, energyBias), phraseCount);
       phraseCount++;
       variant = phraseVariant(tierIdx, phraseId, phraseCount);
     }
@@ -186,7 +231,7 @@ export function startDanceCycle(card, bpm) {
     // beat's transition retargets from wherever the head is (CSS transitions
     // are snap-free by design).
     const maxBeats = move.flow ? FLOW_CLAMP_BEATS : HIT_CLAMP_BEATS;
-    let moveDur = Math.min(move.durBeats * beatSec, beatSec * maxBeats);
+    let moveDur = Math.min(move.durBeats * durBeatSec, durBeatSec * maxBeats);
 
     // THE move: one transition + one transform write. The compositor
     // interpolates off the main thread; retargeting mid-flight eases from
@@ -210,14 +255,20 @@ export function startDanceCycle(card, bpm) {
     // the per-beat retarget cost disappears.
     const swivelRot = move.r * -0.5;
     if (tierIdx >= 2 || lastSwivelRot !== swivelRot) {
-      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : beatSec * 3;
+      // Tier 0/1 use the compensated duration beat: a 3-beat sway at 70 BPM
+      // would otherwise take 2.57 s of absolute time (slow-motion torso).
+      const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : durBeatSec * 3;
       a.setBodySwivel(swivelRot, 1, swivelDur);
       lastSwivelRot = swivelRot;
     }
 
     // Chill lids (PERSONALITY law): the phrase supplies the lid attitude;
-    // a relaxed floor keeps a whisper of droop so accents still read.
-    const lid = Math.max(move.lid, currentBpm < 125 ? 0.15 : 0.08);
+    // a relaxed floor keeps a whisper of droop so accents still read. The
+    // mood (5.6.0) may raise the floor (relaxed = sleepy droop) or lower it
+    // (party/aggressive = wide awake); without mood the BPM-only floor
+    // applies unchanged.
+    const bpmLidFloor = currentBpm < 125 ? 0.15 : 0.08;
+    const lid = Math.max(move.lid, lidFloor !== null ? Math.max(bpmLidFloor, lidFloor) : bpmLidFloor);
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
   };
@@ -245,6 +296,15 @@ const FLOW_CLAMP_BEATS = 1.9;
 /** Tempo tier for a BPM value — the phrase-library selector. */
 export function tierForBpm(bpm) {
   return bpm < 90 ? 0 : bpm < 125 ? 1 : bpm < 160 ? 2 : 3;
+}
+
+/** Effective phrase-library tier: the BPM tier shifted by the mood's tier
+ *  shift (relaxed −1, party/aggressive +1), clamped to [0, 3]. The mood
+ *  argument is optional/absent-safe — a plain BPM sensor yields the legacy
+ *  tierForBpm result. */
+export function effectiveTierForBpm(bpm, mood) {
+  const shift = mood && mood.present ? mood.tierShift : 0;
+  return Math.min(3, Math.max(0, tierForBpm(bpm) + shift));
 }
 
 export function stopDanceCycle(card) {

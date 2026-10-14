@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.6.0
+
+### Tablet Smoothness — Diagnostics + Motion Fixes
+
+* **Performance HUD** — a new "Performance HUD" toggle in the editor shows a small overlay on the card itself with live FPS, jank-frame count, and dance beat-timer lateness (min/avg/max). Built for devices without developer tools (Android WebView / View Assist Companion App): read the numbers directly on the tablet screen. Off by default; zero cost when off.
+* **Beat grid stays locked to the music** — when a dance beat fires late (main-thread contention), the choreography no longer re-anchors its timing grid to "now", which made the next pose fire instantly and read as "skips a beat and fast-forwards". The grid now advances in whole-beat steps, so poses stay on the music's beat positions: a late beat is a slightly-late pose, never a phase shift.
+* **Less per-beat work** — the pupil write path (pupil + eyeball + bellows, three elements) now skips identical targets instead of rewriting every beat, matching the existing guards on lids and LEDs.
+* **Idle no longer wakes the CPU every frame** — the eyelid behavior loop previously ran a requestAnimationFrame chain that ticked every frame while only acting every 1.5–4 seconds. It is now timer-scheduled: it wakes exactly when a lid change is due. CSS transitions keep the motion identical.
+* **Offscreen cards pause** — an IntersectionObserver stops all animation when the card scrolls out of view and resumes on re-entry, freeing the frame budget on long dashboard views.
+
+### AX BPM 3.3.0 Compatibility — Mood Entity
+
+* **New "Mood Sensor Entity" config option** — the AX BPM integration (3.3.0) moved mood analysis out of the BPM sensor's attributes into its own dedicated sensor. The card now reads the mood from that entity: its state is the mood label, its attributes carry the mood scores. Select it in the visual editor (or the demo's config panel) to keep mood-aware dancing working.
+* **Required for mood steering** — without a mood entity configured, the dance stays on the plain BPM-derived style. The BPM sensor no longer carries mood attributes, so the old attribute-based path is gone.
+* **Everything else is unchanged** — the tier shift (relaxed calmer, party/aggressive wilder), energy bias, eyelid floors, confidence threshold, in-place retuning, and firehose-gate change detection all behave exactly as described under Mood-Aware Dance Style above.
+
+### Mood-Aware Dance Style
+
+* **She dances to the song's mood, not just its speed** — the AX BPM sensor's mood analysis now steers her dance style. A relaxing song at a fast tempo no longer gets wild club moves: a **relaxed**-dominant track shifts her choreography one tier calmer (chill moves at any tempo), while **party** or **aggressive** tracks shift it one tier wilder. The beat stays locked to the music's true BPM — only the movement vocabulary changes.
+* **Energy follows the mood too** — the verse/chorus energy envelope is biased by the mood: relaxed tracks keep the wildest phrases out of rotation, party/aggressive tracks pull them in. Relaxed tracks also get sleepier eyelids; party/aggressive tracks keep her wide awake.
+* **No mood data? No change** — with a plain BPM sensor (no mood attributes) her dance is pixel-identical to before. Weak or ambiguous mood classifications stay neutral instead of yanking the style around; only a confident dominant mood (score ≥ 0.4) shifts the tier.
+* **Smooth mid-song transitions** — a mood change that keeps the same effective style retunes the dance in place (no visible restart); a change that flips the style tier restarts the choreography cleanly, just like a tempo-tier change.
+* **New toggle** — "Mood-Aware Dance Style" in the visual editor (default on) lets you turn the feature off for pure BPM-driven behavior.
+
+### Dance Speed Fix
+
+* **No more slow motion at low BPM** — below ~110 BPM the dance moves now travel at a lively, consistent speed instead of crawling. Previously every move's duration stretched with the beat, so at 70 BPM a head tilt took over a full second to travel its (unchanged) distance — the avatar moved on every beat but read as slow motion. Move durations are now floored at a reference tempo, so the chill tier travels at the groovy tier's speed while still landing every pose on the music's beats.
+* **The torso sway keeps up too** — the slow body swivel at chill/groovy tempos uses the same speed floor (a 3-beat sway at 70 BPM previously took 2.6 s of absolute time; now 1.6 s).
+* **Club and hardcore tempos are untouched** — at 110 BPM and above the compensation is a no-op; every move, accent, strobe, and phrase is identical to 5.5.1.
+* **Dance start fix** — the beat clock no longer double-counts its first slot, which previously delayed the second pose by a full extra beat at every dance start.
+
 ## 5.5.1
 
 ### Dance Performance Hotfix

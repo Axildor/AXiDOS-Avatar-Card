@@ -9,7 +9,7 @@
  * (states.js) and updateProgressRing() (states.js).
  */
 
-import { resolveState, parseBpm, parseProgress } from './state-mapper.js';
+import { resolveState, parseBpm, parseProgress, parseMood, moodSignature } from './state-mapper.js';
 import { applyState, updateProgressRing } from './states.js';
 
 /**
@@ -29,11 +29,26 @@ export function applyHassUpdate(card, hass) {
   const entity = card.config.entity;
   const mediaEntity = card.config.media_entity;
   const bpmEntity = card.config.bpm_entity;
+  const moodEntity = card.config.mood_entity;
   const progressEntity = card.config.progress_entity;
   const newVoiceState = (entity && hass.states[entity]) ? hass.states[entity].state.toLowerCase() : 'idle';
   const newMediaState = (mediaEntity && hass.states[mediaEntity]) ? hass.states[mediaEntity].state.toLowerCase() : 'paused';
   const newBpmState = (bpmEntity && hass.states[bpmEntity]) ? hass.states[bpmEntity].state : '120';
   const newProgressState = (progressEntity && hass.states[progressEntity]) ? hass.states[progressEntity].state : null;
+
+  // Mood (5.7.0): read from the dedicated AX BPM mood entity (3.3.0+). Its
+  // STATE is the mood label (aggressive/party/relaxed/electronic/acoustic or
+  // unknown); its ATTRIBUTES carry mood_scores/intensity/calmness. The two
+  // are merged into the synthetic attribute dict parseMood/moodSignature
+  // already consume, so the pure parsing contracts are unchanged. No mood
+  // entity (or unknown/unavailable state) parses to the neutral mood — the
+  // dance stays on the plain BPM-derived style.
+  const moodState = (moodEntity && hass.states[moodEntity]) ? hass.states[moodEntity] : null;
+  const moodUsable = moodState && moodState.state !== 'unknown' && moodState.state !== 'unavailable';
+  const newMoodAttrs = moodUsable
+    ? { mood_label: moodState.state, ...moodState.attributes }
+    : null;
+  const newMoodSig = moodSignature(newMoodAttrs);
 
   const mapped = resolveState(newVoiceState, newMediaState);
 
@@ -45,12 +60,13 @@ export function applyHassUpdate(card, hass) {
   // EVERY future delivery and the card would stay stuck (e.g. frozen in
   // responding visuals) until a page refresh. A desynced card heals on the
   // next hass delivery instead.
-  if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && mapped === card._state) return false;
+  if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && card._lastHassMood === newMoodSig && mapped === card._state) return false;
 
   card._lastHassVoice = newVoiceState;
   card._lastHassMedia = newMediaState;
   card._lastHassBpm = newBpmState;
   card._lastHassProgress = newProgressState;
+  card._lastHassMood = newMoodSig;
 
   // Progress sensor: parse + cache on every tracked change, normalized to
   // the ring's 0-100 scale via the configured progress_min/progress_max
@@ -78,19 +94,23 @@ export function applyHassUpdate(card, hass) {
   // desync and the next hass delivery re-applies the target state (same
   // philosophy as the guarded bopHead tap handler).
   const prevState = card._state;
+  const mood = card.config.mood_style_enabled !== false ? parseMood(newMoodAttrs) : null;
   try {
     if (card._state !== mapped) {
       card._currentBpm = currentBpm;
-      applyState(card, mapped, currentBpm);
-    } else if (mapped === 'dancing' && card._currentBpm !== currentBpm) {
-      // BPM hysteresis: a same-tier BPM change retunes the beat clock IN
-      // PLACE (dancePhase/phraseId/phraseCount preserved — no visible
-      // restart, so sensor jitter cannot flicker the choreography). A
-      // cross-tier change (crossing 90/125/160 BPM) swaps the phrase
+      card._currentMood = mood;
+      applyState(card, mapped, currentBpm, mood);
+    } else if (mapped === 'dancing' && (card._currentBpm !== currentBpm || card._currentMood !== mood)) {
+      // BPM/mood hysteresis: a same-EFFECTIVE-tier change retunes the beat
+      // clock and mood directives IN PLACE (dancePhase/phraseId/phraseCount
+      // preserved — no visible restart, so sensor jitter cannot flicker the
+      // choreography). A change that moves the effective tier (crossing
+      // 90/125/160 BPM, or a mood tier shift flipping) swaps the phrase
       // library, which requires a full restart.
       card._currentBpm = currentBpm;
-      const retuned = typeof card._retuneDance === 'function' && card._retuneDance(currentBpm);
-      if (!retuned) applyState(card, mapped, currentBpm);
+      card._currentMood = mood;
+      const retuned = typeof card._retuneDance === 'function' && card._retuneDance(currentBpm, mood);
+      if (!retuned) applyState(card, mapped, currentBpm, mood);
     } else if (mapped !== 'responding') {
       // respond_delay timer leak guard: when the entity left 'responding'
       // while a deferred transition was still pending, card._state already

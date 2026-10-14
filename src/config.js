@@ -14,6 +14,7 @@ export function getStubConfig() {
     entity: '',
     media_entity: '',
     bpm_entity: '',
+    mood_entity: '',
     progress_entity: '',
     respond_delay: 0,
     zoom: 85,
@@ -25,6 +26,8 @@ export function getStubConfig() {
     progress_max: 100,
     progress_dynamic_color: false,
     progress_invert_color: false,
+    mood_style_enabled: true,
+    debug_perf: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -64,6 +67,20 @@ export function sanitizeConfig(config) {
     c.progress_min = 0;
     c.progress_max = 100;
   }
+  // Mood-aware dance style (5.6.0): reads the mood from the dedicated AX BPM
+  // mood entity (3.3.0+ — state = mood label, attributes = mood_scores) and
+  // shifts the phrase-library tier + energy envelope. Default ON; `!== false`
+  // keeps legacy configs (which lack the key) enabled.
+  c.mood_style_enabled = c.mood_style_enabled !== false;
+  // Mood entity (5.7.0): the AX BPM integration's dedicated mood sensor.
+  // Required for mood steering — without it the dance stays on the plain
+  // BPM-derived style (the BPM sensor no longer carries mood attributes).
+  c.mood_entity = typeof c.mood_entity === 'string' ? c.mood_entity : '';
+  // Perf diagnostics (5.8.0): opt-in on-card performance HUD (FPS, jank
+  // frames, beat-timer lateness) for devices without console access
+  // (Android WebView / View Assist Companion App). Default OFF — zero cost
+  // when disabled (no RAF sampler, no HUD element).
+  c.debug_perf = c.debug_perf === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2.0);
   c.tap_intensity = clampNum(c.tap_intensity, 1.0, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));

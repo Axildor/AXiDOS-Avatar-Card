@@ -35,10 +35,18 @@ Her movement is built from composable layers, the same way a real puppeteer work
 * **Breathing** — her bellows compresses on the downbeat dip and releases on the rise — she breathes *with* the beat.
 
 Her personality shifts depending on the speed of the music:
-* **Chill & Soulful (< 90 BPM):** Relaxed but clearly moving — per-beat sways and bobs (*quad tilt*, *vertical bob*, *sway bob*, *slow arc*) with soft beat-landing hits, downbeat pupil darts, and heavy eyelids. Calmer than the groovy tier, never static.
+* **Chill & Soulful (< 90 BPM):** Relaxed but clearly moving — per-beat sways and bobs (*quad tilt*, *vertical bob*, *sway bob*, *slow arc*) with soft beat-landing hits, downbeat pupil darts, and heavy eyelids. Calmer than the groovy tier, never static. Move durations are floored at a reference tempo, so her moves travel at a lively speed even on slow songs instead of crawling in slow motion.
 * **Groovy & Pop (90 - 124 BPM):** Confident and bouncy — *metronome rock*, *dip & nod*, *swivel groove*, and a *bounce build* that grows into the chorus.
 * **Upbeat & Club (125 - 159 BPM):** Sharp, high-energy snaps — *dip & loom*, *snap swivel*, *pendulum pump*, and a *peak stomp* for the drop.
 * **Intense & Hardcore (160+ BPM):** Aggressive mechanical assault — *violent pendulum*, *servo stutter* (quantized glitch-groove), *loom assault*, and *stomp cycle*.
+
+### 🎭 Mood-Aware Dance Style
+When you configure a mood sensor (the **AX-BPM** integration 3.3.0+ provides one), AXiDOS lets the song's *mood* steer her dance style on top of its tempo:
+* A **relaxed**-dominant track shifts her choreography one tier calmer — chill moves even on a fast song (no more wild club dancing to a laid-back tune).
+* A **party** or **aggressive** track shifts her one tier wilder — more energy even at a moderate tempo.
+* The mood also biases her verse/chorus energy (relaxed keeps the wildest phrases out of rotation) and her eyelids (relaxed = sleepier droop, party/aggressive = wide awake).
+* The beat stays locked to the music's true BPM — only the movement vocabulary changes. Weak or ambiguous mood classifications stay neutral, and without a mood sensor her dance is unchanged.
+* Set the **Mood Sensor Entity** to the AX BPM mood sensor (e.g. `sensor.ax_bpm_mood`) in the visual editor. Disable the feature with the **Mood-Aware Dance Style** toggle (default on).
 
 ### ⚠️ Prerequisite for Dancing
 For AXiDOS to sync her movements to the beat, **she needs to know the BPM of the currently playing song**. 
@@ -92,6 +100,9 @@ tap_action:
 | `progress_ring_enabled` | boolean | Optional | Show the progress ring while idle. Default is `true`. Set to `false` to keep the plain idle look. |
 | `progress_vertical_fill` | boolean | Optional | Fills both sides of the ring from the bottom up — at 50% both sides stand at half height, at 100% the whole socket is lit. Default is `true`. Set to `false` for the original 360° clockwise sweep from the bottom. |
 | `progress_show_in_dance` | boolean | Optional | Keep the progress ring visible while AXiDOS is dancing. Default is `true`. Set to `false` for the idle-only ring. |
+| `mood_entity` | string | Optional | The AX BPM integration's dedicated mood sensor (3.3.0+, e.g. `sensor.ax_bpm_mood`). Its state is the mood label; its attributes carry the mood scores. Required for mood-aware dance style. |
+| `mood_style_enabled` | boolean | Optional | Let the mood sensor steer the dance style: relaxed tracks use calmer moves, party/aggressive tracks wilder ones. Requires `mood_entity` (AX-BPM 3.3.0+). Default is `true`. |
+| `debug_perf` | boolean | Optional | Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Default is `false`. |
 | `progress_min` | number | Optional | The sensor value that maps to an empty ring (0%). Default is `0`. |
 | `progress_max` | number | Optional | The sensor value that maps to a full ring (100%). Default is `100`. Values outside the range clamp to empty/full. |
 | `progress_dynamic_color` | boolean | Optional | Colors the ring by position on the 0–100 scale: green at 0%, yellow mid-scale, red at 100%. Default is `false` (the ring uses the idle pupil's amber shade). |

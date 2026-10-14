@@ -38,7 +38,7 @@ function resetAll(card) {
   a.el.eyeCenter.style.transition = 'fill 0.8s ease-in-out';
 }
 
-export function applyStateVisuals(card, state, bpm) {
+export function applyStateVisuals(card, state, bpm, mood) {
   const a = card.animator;
 
   resetAll(card);
@@ -72,7 +72,7 @@ export function applyStateVisuals(card, state, bpm) {
     // per-beat writes are needed; the hass setter updates it in place on
     // percentage changes while dancing.
     if (card.config.progress_show_in_dance !== false) updateProgressRing(card);
-    startDanceCycle(card, bpm);
+    startDanceCycle(card, bpm, mood);
   } else if (state === 'listening') {
     a.el.eyeLayerListen.style.opacity = '1';
     a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.8s';
@@ -157,17 +157,17 @@ export function updateProgressRing(card) {
  * Public state transition with respond_delay support: entering 'responding'
  * from another state can be deferred by config.respond_delay seconds.
  */
-export function applyState(card, mapped, bpm) {
+export function applyState(card, mapped, bpm, mood) {
   const a = card.animator;
   a.clearTimeout('respond-delay');
   const delaySeconds = card.config.respond_delay !== undefined ? parseFloat(card.config.respond_delay) : 0;
   if (mapped === 'responding' && card._state !== 'responding' && delaySeconds > 0) {
     a.setTimeout('respond-delay', () => {
       card._state = 'responding';
-      applyStateVisuals(card, 'responding', bpm);
+      applyStateVisuals(card, 'responding', bpm, mood);
     }, delaySeconds * 1000);
     return;
   }
   card._state = mapped;
-  applyStateVisuals(card, mapped, bpm);
+  applyStateVisuals(card, mapped, bpm, mood);
 }
