@@ -1,7 +1,9 @@
 /**
  * verify_perf_diagnostics.mjs — Verification of the 5.8.0 tablet-smoothness
  * work: opt-in perf HUD, beat-grid phase preservation, setPupil write guard,
- * and the timer-based lid loop.
+ * and the timer-based lid loop. Extended for 5.7.0-beta.1: version echo,
+ * debug_lite/debug_dprfix flags, the dprFixStyles contract, and the
+ * #scene positioning guard the workaround depends on.
  *
  * Sections:
  *  1. Config: debug_perf sanitization (default OFF, strict === true).
@@ -16,9 +18,19 @@
  *     write cascade; changed targets write.
  *  5. Lid loop: timer-scheduled (no RAF chain) — startLidBehavior registers
  *     a 'lid-loop' TIMER, not a RAF, and stopLidBehavior clears it.
+ *  6. 5.7.0-beta.1: new debug flags sanitize (default OFF, strict === true).
+ *  7. 5.7.0-beta.1: dprFixStyles contract — dpr 1 → null (structural
+ *     no-op), dpr 2 → exact workaround styles with top-left pinning,
+ *     invalid input → null.
+ *  8. 5.7.0-beta.1: template gating — debug-lite class present/absent,
+ *     freeze rules target the sway pivots, #scene keeps position: relative
+ *     (the containing block the dprfix pin depends on), HUD echoes the
+ *     build version + resolved flags line.
  */
 
 import { sanitizeConfig } from '../src/config.js';
+import { buildTemplate, dprFixStyles } from '../src/template.js';
+import { CARD_VERSION } from '../src/version.js';
 import { PerfMonitor } from '../src/perf.js';
 import { startDanceCycle, stopDanceCycle } from '../src/behaviors/dance.js';
 import { startLidBehavior, stopLidBehavior } from '../src/behaviors/idle.js';
@@ -293,6 +305,109 @@ console.log('\n== 5. Lid loop: timer-scheduled, no RAF chain ==');
 
   stopLidBehavior(card);
   assert(!card.animator._timers.has('lid-loop'), 'stopLidBehavior clears the timer');
+}
+
+// ============================================================
+console.log('\n== 6. 5.7.0-beta.1: debug_lite + debug_dprfix sanitization ==');
+{
+  const c1 = sanitizeConfig({ entity: 'x' });
+  assert(c1.debug_lite === false && c1.debug_dprfix === false, 'new debug flags default OFF (absent keys)');
+  const c2 = sanitizeConfig({ entity: 'x', debug_lite: true, debug_dprfix: true });
+  assert(c2.debug_lite === true && c2.debug_dprfix === true, 'debug_lite/debug_dprfix: true survive sanitization');
+  const c3 = sanitizeConfig({ entity: 'x', debug_lite: 'yes', debug_dprfix: 1 });
+  assert(c3.debug_lite === false && c3.debug_dprfix === false, 'non-boolean truthy coerced OFF (strict === true)');
+  const c4 = sanitizeConfig({ entity: 'x', debug_lite: false, debug_dprfix: false });
+  assert(c4.debug_lite === false && c4.debug_dprfix === false, 'explicit false stays false');
+}
+
+// ============================================================
+console.log('\n== 7. 5.7.0-beta.1: dprFixStyles contract ==');
+{
+  // DSF == 1 → structural no-op: null, so the caller injects NOTHING and
+  // the non-probe path stays byte-identical.
+  assert(dprFixStyles(1) === null, 'dpr 1 → null (structural no-op, nothing injected)');
+  // DSF 2 → the exact crbug 449095626 workaround + top-left pinning.
+  const s2 = dprFixStyles(2);
+  assert(s2 !== null, 'dpr 2 → styles returned');
+  assert(s2.includes('transform: scale(2)'), 'dpr 2 → transform: scale(2)');
+  assert(s2.includes('transform-origin: 0 0'), 'dpr 2 → transform-origin: 0 0 (as cited)');
+  assert(s2.includes('width: 50%') && s2.includes('height: 50%'), 'dpr 2 → width/height 100/dpr % (50%)');
+  assert(s2.includes('position: absolute') && s2.includes('top: 0') && s2.includes('left: 0'),
+    'dpr 2 → top-left pinned (neutralizes the #scene flex-center shift)');
+  // Fractional DSF (the Tab S6 Lite reports 2.0, but desktop zoom can give
+  // e.g. 1.25): size-neutral math must hold.
+  const s125 = dprFixStyles(1.25);
+  assert(s125 !== null && s125.includes('transform: scale(1.25)') && s125.includes('width: 80%'),
+    'dpr 1.25 → scale(1.25) + width 80% (100/1.25)');
+  // Invalid input → null (caller must not inject garbage).
+  assert(dprFixStyles(0) === null, 'dpr 0 → null');
+  assert(dprFixStyles(-2) === null, 'dpr negative → null');
+  assert(dprFixStyles(NaN) === null, 'dpr NaN → null');
+  assert(dprFixStyles(Infinity) === null, 'dpr Infinity → null');
+  assert(dprFixStyles('2') === null, 'dpr string → null');
+  assert(dprFixStyles(undefined) === null, 'dpr undefined → null');
+}
+
+// ============================================================
+console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/flags ==');
+{
+  // debug_lite OFF (default): no freeze class, no freeze rules.
+  const tOff = buildTemplate({ zoom: 85 });
+  assert(!tOff.includes('debug-lite'), 'debug_lite off → no debug-lite class in template');
+  assert(!tOff.includes('animation: none'), 'debug_lite off → no freeze rules in template');
+  // debug_lite ON: class on #scene + freeze rules for both sway pivots.
+  const tOn = buildTemplate({ zoom: 85, debug_lite: true });
+  assert(tOn.includes('<div id="scene debug-lite">'), 'debug_lite on → debug-lite class on #scene');
+  assert(tOn.includes('.debug-lite #body-pivot') && tOn.includes('.debug-lite #head-sway-pivot'),
+    'debug_lite on → freeze rules target both sway pivots');
+  assert(tOn.includes('.debug-lite #eye-halo.breathing'), 'debug_lite on → breathing selector frozen (future-proofing)');
+  // #scene positioning guard: the dprfix top-left pin depends on #scene
+  // being the containing block (position: relative). If this ever changes,
+  // the workaround's pin silently anchors to the wrong ancestor.
+  assert(tOff.includes('#scene { position: relative;'), '#scene keeps position: relative (dprfix pin containing block)');
+  // HUD: build version echo + resolved flags line.
+  const hudEl = {
+    style: {}, attrs: {}, _text: '',
+    set textContent(v) { this._text = v; },
+    get textContent() { return this._text; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    setAttributeNS() {},
+    className: '',
+    parentNode: { removeChild() {} },
+  };
+  const shadow = { _children: [], appendChild(c) { this._children.push(c); return c; } };
+  const realCreate = globalThis.document?.createElement?.bind(globalThis.document);
+  globalThis.document = { createElement: () => hudEl };
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  let rafId = 0;
+  globalThis.requestAnimationFrame = () => ++rafId;
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const mon = new PerfMonitor(shadow, { debug_perf: true, debug_lite: true, debug_dprfix: true });
+    mon._renderHud();
+    const txt = mon._hud.textContent;
+    assert(txt.includes(`build: ${CARD_VERSION}`), `HUD echoes the build version (${CARD_VERSION})`);
+    assert(CARD_VERSION === '5.7.0-beta.1', `version.js is the beta build (${CARD_VERSION})`);
+    assert(/dpr: \d/.test(txt), 'HUD shows live dpr');
+    assert(txt.includes('flags: perf on · lite on · dprfix: on'), 'HUD flags line shows resolved flags');
+    assert(txt.includes('heap:'), 'HUD shows heap line (n/a or MB)');
+    mon.destroy();
+    // DSF-1 resolution: dprfix on at dpr 1 must read "identity" so a DSF-1
+    // tester does not file a false regression.
+    globalThis.devicePixelRatio = 1;
+    const mon2 = new PerfMonitor(shadow, { debug_perf: true, debug_dprfix: true });
+    mon2._renderHud();
+    assert(mon2._hud.textContent.includes('dprfix: on (identity, dpr 1)'),
+      'HUD resolves dprfix at DSF 1 as "on (identity, dpr 1)"');
+    mon2.destroy();
+    delete globalThis.devicePixelRatio;
+  } finally {
+    if (realCreate) globalThis.document.createElement = realCreate;
+    else delete globalThis.document;
+    globalThis.requestAnimationFrame = realRaf;
+    globalThis.cancelAnimationFrame = realCaf;
+  }
 }
 
 // ============================================================

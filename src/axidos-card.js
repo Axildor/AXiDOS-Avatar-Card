@@ -9,7 +9,7 @@
 import { sanitizeConfig, getStubConfig } from './config.js';
 import { buildEditorForm } from './editor.js';
 import { applyHassUpdate } from './hass-update.js';
-import { buildTemplate } from './template.js';
+import { buildTemplate, dprFixStyles } from './template.js';
 import { AxidosAnimator } from './animator.js';
 import { applyState, updateProgressRing } from './states.js';
 import { bopHead } from './behaviors/bop.js';
@@ -136,7 +136,7 @@ export class AxidosCard extends HTMLElement {
     // Recreate the perf HUD if it was destroyed on disconnect (the HUD
     // element itself was removed with the sampler).
     if (this.contentReady && this.config?.debug_perf === true && !this.perf) {
-      this.perf = new PerfMonitor(this.shadowRoot);
+      this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
     // Reset the raw-state caches: HA's renderer (sections, lazy load, edit
     // mode) detaches and re-attaches card elements without recreating them.
@@ -191,12 +191,24 @@ export class AxidosCard extends HTMLElement {
 
   setupDOM() {
     this.shadowRoot.innerHTML = buildTemplate(this.config);
+    // DPR compositing workaround (5.7.0-beta.1, crbug 449095626): when
+    // debug_dprfix is on, rescale #axidos-svg so SVG transform animations
+    // re-engage the compositor path on DSF > 1 devices. dprFixStyles
+    // returns null at DSF == 1 (structural no-op — nothing is injected).
+    // Applied here (setupDOM) so an editor toggle rebuilds cleanly; DPR is
+    // captured at setup time — dynamic re-capture (ResizeObserver +
+    // visualViewport listener) is hardening toward 5.7.0 stable.
+    if (this.config.debug_dprfix === true) {
+      const svg = this.shadowRoot.getElementById('axidos-svg');
+      const css = dprFixStyles(typeof devicePixelRatio === 'number' ? devicePixelRatio : 1);
+      if (svg && css) svg.style.cssText = css;
+    }
     // Perf HUD (5.8.0): opt-in on-card diagnostics for devices without
     // developer tools. Destroyed and rebuilt with the DOM so a config change
     // (debug_perf toggle) always reflects the current setting.
     if (this.perf) { this.perf.destroy(); this.perf = null; }
     if (this.config.debug_perf === true) {
-      this.perf = new PerfMonitor(this.shadowRoot);
+      this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
   }
 

@@ -28,6 +28,8 @@ export function getStubConfig() {
     progress_invert_color: false,
     mood_style_enabled: true,
     debug_perf: false,
+    debug_lite: false,
+    debug_dprfix: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -81,6 +83,16 @@ export function sanitizeConfig(config) {
   // (Android WebView / View Assist Companion App). Default OFF — zero cost
   // when disabled (no RAF sampler, no HUD element).
   c.debug_perf = c.debug_perf === true;
+  // Lite mode (5.7.0-beta.1): freezes the always-on ambient motion (body
+  // sway + head ambient sway CSS keyframes) to isolate the baseline repaint
+  // load in the tablet A/B protocol. Default OFF — zero behavior change.
+  c.debug_lite = c.debug_lite === true;
+  // DPR compositing workaround (5.7.0-beta.1): crbug 449095626 — SVG
+  // transform animations are not composited when device scale factor > 1
+  // (they animate on the main thread). The workaround rescales #axidos-svg
+  // so the compositor path re-engages. Default OFF — zero behavior change;
+  // a visual no-op at DSF == 1 by construction (dprFixStyles returns null).
+  c.debug_dprfix = c.debug_dprfix === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2.0);
   c.tap_intensity = clampNum(c.tap_intensity, 1.0, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));

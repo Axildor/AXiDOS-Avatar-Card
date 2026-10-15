@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.7.0-beta.1
+
+### Tablet Jank Probe Harness + DPR Compositing Workaround
+
+* **New diagnostic toggles (all default OFF — zero behavior change unless opted in)** — "Debug: Lite Mode (Freeze Ambient)" freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load; "Debug: DPR Compositing Fix" applies a workaround for a Chromium bug where SVG transform animations are not composited on high-DPR screens (they repaint on the main thread every frame — the suspected root cause of tablet jank; desktop is unaffected).
+* **The Performance HUD now identifies itself** — the overlay shows the loaded build version, the device's scale factor (DPR), the JavaScript heap usage (Chromium/WebView only), and which debug flags are active. This ends cache ambiguity: HA serves the card at a stable URL with no cache-busting, so browsers can silently keep running an old build — now the tablet screen itself proves which build is loaded.
+* **Why a versioned beta instead of a silent fix** — the DPR workaround needs on-device numbers before it can ship enabled by default. This beta lets tablet users run a simple A/B protocol (flags off → dprfix on → lite + dprfix on) and report the HUD numbers; if movement returns to 60 fps and bounce jank disappears with the fix on, it becomes the default in 5.7.0 stable.
+* **No risk in trying** — both new toggles are strictly opt-in, the DPR fix is a visual no-op at scale factor 1 (it injects nothing at all), and the HUD's flags line shows the resolved state so testers on desktop don't mistake "no change" for "not working".
+
 ## 5.6.0
 
 ### Tablet Smoothness — Diagnostics + Motion Fixes

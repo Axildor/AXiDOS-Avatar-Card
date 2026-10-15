@@ -296,6 +296,16 @@
       <input type="checkbox" id="cfg-perf">
       <small>FPS / jank / beat-lateness overlay for diagnosing stutter on tablets.</small>
     </div>
+    <div class="switch-row">
+      <span>Debug: Lite Mode (Freeze Ambient)</span>
+      <input type="checkbox" id="cfg-lite">
+      <small>Freezes body sway + head sway to isolate the baseline repaint load.</small>
+    </div>
+    <div class="switch-row">
+      <span>Debug: DPR Compositing Fix</span>
+      <input type="checkbox" id="cfg-dprfix">
+      <small>crbug 449095626 workaround: rescales the SVG so transform animations re-engage the compositor on DSF > 1. No visual change at DSF 1.</small>
+    </div>
 
     <details>
       <summary>Tap / Press Configuration</summary>
@@ -373,6 +383,8 @@ function getStubConfig() {
     progress_invert_color: false,
     mood_style_enabled: true,
     debug_perf: false,
+    debug_lite: false,
+    debug_dprfix: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -403,6 +415,8 @@ function sanitizeConfig(config) {
   c.mood_style_enabled = c.mood_style_enabled !== false;
   c.mood_entity = typeof c.mood_entity === "string" ? c.mood_entity : "";
   c.debug_perf = c.debug_perf === true;
+  c.debug_lite = c.debug_lite === true;
+  c.debug_dprfix = c.debug_dprfix === true;
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
   c.tap_intensity = clampNum(c.tap_intensity, 1, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
@@ -474,6 +488,17 @@ function buildEditorForm() {
       // ── Perf Diagnostics (5.8.0) ──
       {
         name: "debug_perf",
+        default: false,
+        selector: { boolean: {} }
+      },
+      // ── Debug Probes (5.7.0-beta.1) ──
+      {
+        name: "debug_lite",
+        default: false,
+        selector: { boolean: {} }
+      },
+      {
+        name: "debug_dprfix",
         default: false,
         selector: { boolean: {} }
       },
@@ -605,6 +630,8 @@ function buildEditorForm() {
         mood_entity: "Mood Sensor Entity",
         mood_style_enabled: "Mood-Aware Dance Style",
         debug_perf: "Performance HUD",
+        debug_lite: "Debug: Lite Mode (Freeze Ambient)",
+        debug_dprfix: "Debug: DPR Compositing Fix",
         tap_enabled: "Enable Tap to Bop",
         tap_action: "Tap Action",
         tap_speed: "Animation Speed",
@@ -636,6 +663,8 @@ function buildEditorForm() {
         mood_entity: "The AX BPM integration's dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.",
         mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
         debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
+        debug_lite: "Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only \u2014 leave off for normal use.",
+        debug_dprfix: "Workaround for Chromium bug 449095626: SVG transform animations are not composited when device scale factor > 1 (they repaint on the main thread). Rescales the SVG to re-engage the compositor. No visual change at scale factor 1. Diagnostic \u2014 leave off for normal use.",
         tap_enabled: "Plays the bop animation when the card is tapped.",
         tap_action: "Optional Home Assistant action fired on tap.",
         tap_speed: "0.1 = slow, 0.5 = normal, 2.0 = fast.",
@@ -2203,6 +2232,14 @@ function buildTemplate(config) {
   const width = 280 * scale;
   const height = 320 * scale;
   const bgStyle = config.transparent_bg ? "background: transparent; box-shadow: none; border: none;" : "background: var(--ha-card-background, var(--card-background-color, #1c1c1c));";
+  const lite = config.debug_lite === true;
+  const liteClass = lite ? " debug-lite" : "";
+  const liteCss = lite ? `
+      /* ---- debug_lite (5.7.0-beta.1): ambient motion frozen ---- */
+      .debug-lite #body-pivot,
+      .debug-lite #head-sway-pivot,
+      .debug-lite #eye-halo.breathing { animation: none !important; }
+` : "";
   return `
     <style>
       :host { display: flex; align-items: center; justify-content: center; ${bgStyle} border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; width: 100%; }
@@ -2263,6 +2300,7 @@ function buildTemplate(config) {
       @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
+${liteCss}
       #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
 
       /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
@@ -2272,7 +2310,7 @@ function buildTemplate(config) {
         transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
       }
     </style>
-    <div id="scene">
+    <div id="scene${liteClass}">
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
       <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
         <defs>
@@ -2441,6 +2479,20 @@ function buildTemplate(config) {
       </svg>
     </div>
   `;
+}
+function dprFixStyles(dpr) {
+  if (typeof dpr !== "number" || !Number.isFinite(dpr) || dpr <= 0) return null;
+  if (dpr === 1) return null;
+  const pct = 100 / dpr;
+  return [
+    `transform: scale(${dpr})`,
+    "transform-origin: 0 0",
+    `width: ${pct}%`,
+    `height: ${pct}%`,
+    "position: absolute",
+    "top: 0",
+    "left: 0"
+  ].join("; ");
 }
 
 // src/animator.js
@@ -2634,6 +2686,9 @@ var AxidosAnimator = class {
   }
 };
 
+// src/version.js
+var CARD_VERSION = "5.7.0-beta.1";
+
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;
 var HUD_REFRESH_MS = 500;
@@ -2641,10 +2696,11 @@ var BEAT_WINDOW = 32;
 var PerfMonitor = class {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root (HUD appended here)
-   * @param {HTMLElement} host - the card host element (for size context)
+   * @param {Object} [config] - sanitized card config (for the flags line)
    */
-  constructor(shadowRoot) {
+  constructor(shadowRoot, config = {}) {
     this._shadow = shadowRoot;
+    this._config = config;
     this._rafId = null;
     this._lastFrame = null;
     this._frameCount = 0;
@@ -2704,6 +2760,16 @@ var PerfMonitor = class {
     this._rafId = requestAnimationFrame(sample);
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
   }
+  /** Resolved debug-flag state for the HUD flags line. */
+  _flagsLine() {
+    const cfg = this._config || {};
+    const perf = cfg.debug_perf === true;
+    const lite = cfg.debug_lite === true;
+    const dprfixOn = cfg.debug_dprfix === true;
+    const dpr = typeof devicePixelRatio === "number" && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
+    const dprfix = dprfixOn ? dpr === 1 ? "on (identity, dpr 1)" : `on (dpr ${dpr})` : "off";
+    return `flags: perf ${perf ? "on" : "off"} \xB7 lite ${lite ? "on" : "off"} \xB7 dprfix: ${dprfix}`;
+  }
   _renderHud() {
     let beatLine = "beat late: \u2014";
     if (this._beatLates.length > 0) {
@@ -2714,7 +2780,12 @@ var PerfMonitor = class {
       const avg = Math.round(sum / arr.length);
       beatLine = `beat late: ${min}/${avg}/${max} ms`;
     }
-    this._hud.textContent = `fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms
+    const dpr = typeof devicePixelRatio === "number" && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
+    const mem = typeof performance !== "undefined" && performance.memory && typeof performance.memory.usedJSHeapSize === "number" ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB` : "n/a";
+    this._hud.textContent = `build: ${CARD_VERSION}
+dpr: ${dpr}  heap: ${mem}
+${this._flagsLine()}
+fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms
 ${beatLine}`;
     this._worstFrame = 0;
   }
@@ -2835,7 +2906,7 @@ var AxidosCard = class extends HTMLElement {
     }
     this._setupOffscreenPause();
     if (this.contentReady && this.config?.debug_perf === true && !this.perf) {
-      this.perf = new PerfMonitor(this.shadowRoot);
+      this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
     this._lastHassVoice = null;
     this._lastHassMedia = null;
@@ -2884,12 +2955,17 @@ var AxidosCard = class extends HTMLElement {
   }
   setupDOM() {
     this.shadowRoot.innerHTML = buildTemplate(this.config);
+    if (this.config.debug_dprfix === true) {
+      const svg = this.shadowRoot.getElementById("axidos-svg");
+      const css = dprFixStyles(typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
+      if (svg && css) svg.style.cssText = css;
+    }
     if (this.perf) {
       this.perf.destroy();
       this.perf = null;
     }
     if (this.config.debug_perf === true) {
-      this.perf = new PerfMonitor(this.shadowRoot);
+      this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
   }
   initAxidos() {
@@ -2990,6 +3066,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
     zoom: 85,
     transparent_bg: false,
     debug_perf: false,
+    debug_lite: false,
+    debug_dprfix: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -3169,6 +3247,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
     $('cfg-zoom').value = currentConfig.zoom ?? 85;
     $('cfg-transparent').checked = !!currentConfig.transparent_bg;
     $('cfg-perf').checked = currentConfig.debug_perf === true;
+    $('cfg-lite').checked = currentConfig.debug_lite === true;
+    $('cfg-dprfix').checked = currentConfig.debug_dprfix === true;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -3198,6 +3278,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
       zoom: parseInt($('cfg-zoom').value, 10),
       transparent_bg: $('cfg-transparent').checked,
       debug_perf: $('cfg-perf').checked,
+      debug_lite: $('cfg-lite').checked,
+      debug_dprfix: $('cfg-dprfix').checked,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),

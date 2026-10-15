@@ -12,6 +12,25 @@ export function buildTemplate(config) {
   const bgStyle = config.transparent_bg
     ? 'background: transparent; box-shadow: none; border: none;'
     : 'background: var(--ha-card-background, var(--card-background-color, #1c1c1c));';
+  // debug_lite (5.7.0-beta.1): a class on #scene freezes the always-on
+  // ambient motion (body sway + head ambient sway keyframes) so the A/B
+  // protocol can isolate the baseline repaint load. Class-based, NOT inline
+  // styles: connectedCallback's double-rAF reflow dance sets
+  // style.animation = '' on the pivots, which would silently wipe an inline
+  // freeze on every re-attach — a class survives it. The freeze CSS block
+  // is emitted ONLY when the flag is on, so the default template carries
+  // no trace of the probe path.
+  const lite = config.debug_lite === true;
+  const liteClass = lite ? ' debug-lite' : '';
+  // The #eye-halo.breathing selector is future-proofing: no JS currently
+  // applies the class, but freezing it here keeps lite mode complete if
+  // breathing is ever wired up.
+  const liteCss = lite ? `
+      /* ---- debug_lite (5.7.0-beta.1): ambient motion frozen ---- */
+      .debug-lite #body-pivot,
+      .debug-lite #head-sway-pivot,
+      .debug-lite #eye-halo.breathing { animation: none !important; }
+` : '';
 
   return `
     <style>
@@ -73,6 +92,7 @@ export function buildTemplate(config) {
       @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
+${liteCss}
       #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
 
       /* Idle progress ring: dasharray-driven fill (pathLength=100 → the dash
@@ -82,7 +102,7 @@ export function buildTemplate(config) {
         transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
       }
     </style>
-    <div id="scene">
+    <div id="scene${liteClass}">
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
       <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
         <defs>
@@ -251,4 +271,46 @@ export function buildTemplate(config) {
       </svg>
     </div>
   `;
+}
+
+/**
+ * dprFixStyles(dpr) — crbug 449095626 workaround (5.7.0-beta.1).
+ *
+ * Chromium does not composite SVG animations driven by CSS transforms when
+ * the device scale factor (DPR) > 1 — they animate on the main thread and
+ * repaint the whole SVG per frame (clean at DSF 1.0, "lots of jank" at
+ * DSF ≠ 1.0; Firefox/Safari unaffected). The workaround rescales the SVG
+ * element so the compositor path re-engages:
+ *
+ *   transform: scale(dpr); transform-origin: 0 0; width/height: 100/dpr %
+ *
+ * Size-neutral at any DPR (the scaled box covers the same area) and
+ * zoom-compatible (zoom sizes the #scene slot, not a transform).
+ *
+ * Positioning: #scene flex-centers the halved layout box, so origin 0 0
+ * would scale from a point ~half-a-box inside the scene and shift the
+ * avatar toward the bottom-right. The returned styles therefore pin the
+ * SVG to the scene's top-left (position: absolute; top: 0; left: 0) —
+ * #scene is position: relative, so origin 0 0 IS the scene origin and the
+ * scaled box covers the scene exactly, pixel-aligned.
+ *
+ * Structural no-op at DSF == 1: returns null and the caller injects
+ * nothing — the non-probe path stays byte-identical.
+ *
+ * @param {number} dpr - devicePixelRatio (or visualViewport.scale-based value)
+ * @returns {string|null} cssText for #axidos-svg, or null at DSF == 1
+ */
+export function dprFixStyles(dpr) {
+  if (typeof dpr !== 'number' || !Number.isFinite(dpr) || dpr <= 0) return null;
+  if (dpr === 1) return null;
+  const pct = 100 / dpr;
+  return [
+    `transform: scale(${dpr})`,
+    'transform-origin: 0 0',
+    `width: ${pct}%`,
+    `height: ${pct}%`,
+    'position: absolute',
+    'top: 0',
+    'left: 0',
+  ].join('; ');
 }

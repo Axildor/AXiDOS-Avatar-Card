@@ -72,6 +72,17 @@ export function buildEditorForm() {
         default: false,
         selector: { boolean: {} },
       },
+      // ── Debug Probes (5.7.0-beta.1) ──
+      {
+        name: 'debug_lite',
+        default: false,
+        selector: { boolean: {} },
+      },
+      {
+        name: 'debug_dprfix',
+        default: false,
+        selector: { boolean: {} },
+      },
       // ── Progress Ring section ──
       {
         type: 'expandable',
@@ -202,6 +213,8 @@ export function buildEditorForm() {
         mood_entity: 'Mood Sensor Entity',
         mood_style_enabled: 'Mood-Aware Dance Style',
         debug_perf: 'Performance HUD',
+        debug_lite: 'Debug: Lite Mode (Freeze Ambient)',
+        debug_dprfix: 'Debug: DPR Compositing Fix',
         tap_enabled: 'Enable Tap to Bop',
         tap_action: 'Tap Action',
         tap_speed: 'Animation Speed',
@@ -233,6 +246,8 @@ export function buildEditorForm() {
         mood_entity: 'The AX BPM integration\'s dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.',
         mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
         debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
+        debug_lite: 'Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only — leave off for normal use.',
+        debug_dprfix: 'Workaround for Chromium bug 449095626: SVG transform animations are not composited when device scale factor > 1 (they repaint on the main thread). Rescales the SVG to re-engage the compositor. No visual change at scale factor 1. Diagnostic — leave off for normal use.',
         tap_enabled: 'Plays the bop animation when the card is tapped.',
         tap_action: 'Optional Home Assistant action fired on tap.',
         tap_speed: '0.1 = slow, 0.5 = normal, 2.0 = fast.',

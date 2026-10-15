@@ -1,5 +1,6 @@
 /**
- * perf.js — Opt-in on-card performance diagnostics (5.8.0).
+ * perf.js — Opt-in on-card performance diagnostics (5.8.0; extended
+ * 5.7.0-beta.1).
  *
  * Devices without developer tools (Android WebView / View Assist Companion
  * App) have no console, so the card itself becomes the logger: a small HUD
@@ -12,6 +13,18 @@
  * text is updated at most twice per second.
  *
  * Metrics:
+ *  - build:      CARD_VERSION echo — the loaded build is directly verifiable
+ *                on the tablet (HA serves /hacsfiles/... with no
+ *                cache-busting; WebView holds the file aggressively, so an
+ *                in-place overwrite can leave clients silently on the old
+ *                build — indistinguishable from "fix didn't work").
+ *  - dpr:        devicePixelRatio, read LIVE at each HUD refresh (not
+ *                captured once) — the crbug 449095626 variable.
+ *  - heap:       usedJSHeapSize in MB (Chromium-only performance.memory,
+ *                guarded; renders n/a elsewhere). GC stalls show up as
+ *                160ms-class worst frames with a heap sawtooth.
+ *  - flags:      the resolved debug-flag state (perf/lite/dprfix) so the
+ *                tester can confirm which config the device is running.
  *  - fps:        rolling 2-second frame rate from the RAF sampler.
  *  - jank:       frames slower than 50ms since HUD start (cumulative).
  *  - worst:      slowest single frame since the last HUD refresh (ms).
@@ -25,6 +38,8 @@
  * reports lateness through recordBeatLateness() (a no-op when absent).
  */
 
+import { CARD_VERSION } from './version.js';
+
 const JANK_THRESHOLD_MS = 50;
 const HUD_REFRESH_MS = 500;
 const BEAT_WINDOW = 32;
@@ -32,10 +47,11 @@ const BEAT_WINDOW = 32;
 export class PerfMonitor {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root (HUD appended here)
-   * @param {HTMLElement} host - the card host element (for size context)
+   * @param {Object} [config] - sanitized card config (for the flags line)
    */
-  constructor(shadowRoot) {
+  constructor(shadowRoot, config = {}) {
     this._shadow = shadowRoot;
+    this._config = config;
     this._rafId = null;
     this._lastFrame = null;
     this._frameCount = 0;
@@ -106,6 +122,23 @@ export class PerfMonitor {
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
   }
 
+  /** Resolved debug-flag state for the HUD flags line. */
+  _flagsLine() {
+    const cfg = this._config || {};
+    const perf = cfg.debug_perf === true;
+    const lite = cfg.debug_lite === true;
+    const dprfixOn = cfg.debug_dprfix === true;
+    const dpr = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio)
+      ? devicePixelRatio : 1;
+    // Resolve the dprfix state at DSF == 1: the workaround is a structural
+    // no-op there (dprFixStyles returns null), so a DSF-1 tester must not
+    // expect a visible change and file a false regression.
+    const dprfix = dprfixOn
+      ? (dpr === 1 ? 'on (identity, dpr 1)' : `on (dpr ${dpr})`)
+      : 'off';
+    return `flags: perf ${perf ? 'on' : 'off'} · lite ${lite ? 'on' : 'off'} · dprfix: ${dprfix}`;
+  }
+
   _renderHud() {
     let beatLine = 'beat late: —';
     if (this._beatLates.length > 0) {
@@ -116,8 +149,19 @@ export class PerfMonitor {
       const avg = Math.round(sum / arr.length);
       beatLine = `beat late: ${min}/${avg}/${max} ms`;
     }
+    // Live DPR per refresh (not captured once) + guarded Chromium heap.
+    const dpr = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio)
+      ? devicePixelRatio : 1;
+    const mem = (typeof performance !== 'undefined' && performance.memory
+      && typeof performance.memory.usedJSHeapSize === 'number')
+      ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB`
+      : 'n/a';
     this._hud.textContent =
-      `fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms\n${beatLine}`;
+      `build: ${CARD_VERSION}\n` +
+      `dpr: ${dpr}  heap: ${mem}\n` +
+      `${this._flagsLine()}\n` +
+      `fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms\n` +
+      `${beatLine}`;
     this._worstFrame = 0;
   }
 

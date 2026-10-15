@@ -42,3 +42,7 @@ jobs:
         with:
           body_path: release_notes.md
           files: axidos-card.js
+          # Pre-release when the tag carries a suffix (e.g. 5.7.0-beta.1):
+          # HACS only offers prereleases to users who enabled beta releases
+          # for the repo, so the beta test cohort is opt-in by construction.
+          prerelease: ${{ contains(github.ref, '-') }}

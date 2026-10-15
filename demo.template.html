@@ -296,6 +296,16 @@
       <input type="checkbox" id="cfg-perf">
       <small>FPS / jank / beat-lateness overlay for diagnosing stutter on tablets.</small>
     </div>
+    <div class="switch-row">
+      <span>Debug: Lite Mode (Freeze Ambient)</span>
+      <input type="checkbox" id="cfg-lite">
+      <small>Freezes body sway + head sway to isolate the baseline repaint load.</small>
+    </div>
+    <div class="switch-row">
+      <span>Debug: DPR Compositing Fix</span>
+      <input type="checkbox" id="cfg-dprfix">
+      <small>crbug 449095626 workaround: rescales the SVG so transform animations re-engage the compositor on DSF > 1. No visual change at DSF 1.</small>
+    </div>
 
     <details>
       <summary>Tap / Press Configuration</summary>
@@ -373,6 +383,8 @@
     zoom: 85,
     transparent_bg: false,
     debug_perf: false,
+    debug_lite: false,
+    debug_dprfix: false,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -552,6 +564,8 @@
     $('cfg-zoom').value = currentConfig.zoom ?? 85;
     $('cfg-transparent').checked = !!currentConfig.transparent_bg;
     $('cfg-perf').checked = currentConfig.debug_perf === true;
+    $('cfg-lite').checked = currentConfig.debug_lite === true;
+    $('cfg-dprfix').checked = currentConfig.debug_dprfix === true;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -581,6 +595,8 @@
       zoom: parseInt($('cfg-zoom').value, 10),
       transparent_bg: $('cfg-transparent').checked,
       debug_perf: $('cfg-perf').checked,
+      debug_lite: $('cfg-lite').checked,
+      debug_dprfix: $('cfg-dprfix').checked,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),
