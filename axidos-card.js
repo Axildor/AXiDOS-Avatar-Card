@@ -1,3 +1,7 @@
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
 // src/config.js
 function clampNum(val, def, min, max) {
   const n = Number(val !== void 0 && val !== null && val !== "" ? val : def);
@@ -25,6 +29,7 @@ function getStubConfig() {
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
+    fps_max: 60,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -57,6 +62,7 @@ function sanitizeConfig(config) {
   c.debug_perf = c.debug_perf === true;
   c.debug_lite = c.debug_lite === true;
   c.debug_dprfix = c.debug_dprfix === true;
+  c.fps_max = clampNum(c.fps_max, 60, 30, 240);
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2);
   c.tap_intensity = clampNum(c.tap_intensity, 1, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
@@ -141,6 +147,14 @@ function buildEditorForm() {
         name: "debug_dprfix",
         default: false,
         selector: { boolean: {} }
+      },
+      // ── JS Motion Frame Cap (5.7.0-beta.3) ──
+      {
+        name: "fps_max",
+        default: 60,
+        selector: {
+          number: { min: 30, max: 240, step: 1, mode: "box" }
+        }
       },
       // ── Progress Ring section ──
       {
@@ -272,6 +286,7 @@ function buildEditorForm() {
         debug_perf: "Performance HUD",
         debug_lite: "Debug: Lite Mode (Freeze Ambient)",
         debug_dprfix: "Debug: DPR Compositing Fix",
+        fps_max: "Max Animation FPS (JS Motion)",
         tap_enabled: "Enable Tap to Bop",
         tap_action: "Tap Action",
         tap_speed: "Animation Speed",
@@ -304,7 +319,8 @@ function buildEditorForm() {
         mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
         debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
         debug_lite: "Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only \u2014 leave off for normal use.",
-        debug_dprfix: "Workaround for Chromium bug 449095626: rescales the SVG to re-engage the compositor at device scale factor > 1. FALSIFIED on the Tab S6 Lite field test (no change vs baseline) \u2014 kept for further testing on other devices. No visual change at scale factor 1. Diagnostic \u2014 leave off for normal use.",
+        debug_dprfix: "RETIRED (no-op) since 5.7.0-beta.3: the layer split replaced the single-SVG compositing path this workaround targeted, and it was falsified on the Tab S6 Lite field test. The key is accepted for backward compatibility but does nothing.",
+        fps_max: "Caps the JavaScript-driven motion loops (tap bop spring, glitch effect) at this many updates per second. 60 is right for almost every device; lower to 30 to save more CPU on very weak hardware. Motion looks identical \u2014 only the update rate changes. Does not affect the ambient CSS sway.",
         tap_enabled: "Plays the bop animation when the card is tapped.",
         tap_action: "Optional Home Assistant action fired on tap.",
         tap_speed: "0.1 = slow, 0.5 = normal, 2.0 = fast.",
@@ -560,19 +576,19 @@ var IDLE_BEHAVIORS = [
           if (card._state !== "idle" || count > 12) {
             a.cancelRaf("idle-glitch");
             if (card._state === "idle") {
-              a.el.eyeHalo.setAttribute("fill", "url(#haloGradIdle)");
-              a.el.eyeCenter.setAttribute("fill", "#ffcc00");
+              a.setEyeHaloFill("url(#haloGradIdle)");
+              a.setEyeCenterColor("#ffcc00");
               a.setHead(0, 0, 0, 1, 0.4);
             }
             return;
           }
           a.setHead((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 1, 0.05, "linear");
           if (count % 2 === 0) {
-            a.el.eyeHalo.setAttribute("fill", "#110000");
-            a.el.eyeCenter.setAttribute("fill", "#884400");
+            a.setEyeHaloFill("#110000");
+            a.setEyeCenterColor("#884400");
           } else {
-            a.el.eyeHalo.setAttribute("fill", "#ffb800");
-            a.el.eyeCenter.setAttribute("fill", "#ffffff");
+            a.setEyeHaloFill("#ffb800");
+            a.setEyeCenterColor("#ffffff");
           }
           count++;
         }
@@ -624,12 +640,14 @@ function startIdleHeadPoses(card) {
   if (card._state !== "idle") return;
   const a = card.animator;
   try {
-    const t = getComputedStyle(a.el.head).transform;
-    if (t && t !== "none") {
-      a.el.head.style.transition = "transform 0.6s cubic-bezier(0.34,1.06,0.64,1)";
-      a.el.head.style.transform = t;
-    } else {
-      a.el.head.style.transition = "";
+    for (const head of a.el.head) {
+      const t = getComputedStyle(head).transform;
+      if (t && t !== "none") {
+        head.style.transition = "transform 0.6s cubic-bezier(0.34,1.06,0.64,1)";
+        head.style.transform = t;
+      } else {
+        head.style.transition = "";
+      }
     }
   } catch (err) {
   }
@@ -1392,11 +1410,11 @@ function startDanceCycle(card, bpm, mood) {
     if (move.strobe) {
       const fill = isDownBeat ? "#ff0000" : "#ffffff";
       if (lastStrobeFill !== fill) {
-        a.el.eyeCenter.setAttribute("fill", fill);
+        a.setEyeCenterColor(fill);
         lastStrobeFill = fill;
       }
     } else if (lastStrobeFill !== null && lastStrobeFill !== "#ffffff") {
-      a.el.eyeCenter.setAttribute("fill", "#ffffff");
+      a.setEyeCenterColor("#ffffff");
       lastStrobeFill = "#ffffff";
     }
     const eyeScale = `scale(${eyeHitScale})`;
@@ -1467,7 +1485,7 @@ function stopDanceCycle(card) {
   a.clearTimeout("dance-led");
   a.clearTimeout("dance-sync");
   delete card._retuneDance;
-  if (a.el.eyeCenter) a.el.eyeCenter.setAttribute("fill", "#ffffff");
+  if (a.el.eyeCenter) a.setEyeCenterColor("#ffffff");
   a.setBellows(0, 0.3);
 }
 
@@ -1636,11 +1654,13 @@ function bopHead(card) {
     const ty = spring.position;
     const rot = spring.position * 0.15;
     const scale = 1 - Math.abs(spring.position) * 3e-3;
-    if (a.el.headBop) {
+    if (a.el.headBop && a.el.headBop.length) {
       const t = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
       if (t !== lastWrittenTransform) {
-        a.el.headBop.style.transition = "none";
-        a.el.headBop.style.transform = t;
+        for (const bop of a.el.headBop) {
+          bop.style.transition = "none";
+          bop.style.transform = t;
+        }
         lastWrittenTransform = t;
       }
     }
@@ -1701,17 +1721,16 @@ function resetAll(card) {
   a.el.eyeLayerRespond.style.opacity = "0";
   a.el.eyeLayerDance.style.opacity = "0";
   a.el.eyeCenter.style.transform = "scale(1)";
-  a.el.eyeCenter.style.transition = "fill 0.8s ease-in-out";
 }
 function applyStateVisuals(card, state, bpm, mood) {
   const a = card.animator;
   resetAll(card);
   if (state === "idle") {
     a.el.eyeLayerIdle.style.opacity = "1";
-    a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.8s";
-    a.el.eyeHalo.setAttribute("fill", "url(#haloGradIdle)");
+    a.el.eyeHalo.style.transition = "opacity 0.8s";
+    a.setEyeHaloFill("url(#haloGradIdle)");
     a.el.eyeHalo.style.opacity = "0.05";
-    a.el.eyeCenter.setAttribute("fill", "#ffcc00");
+    a.setEyeCenterColor("#ffcc00");
     a.setHead(0, 0, 0, 1, 2.2);
     a.setLid(0, 1.2);
     a.setPupil(0, 0);
@@ -1723,21 +1742,21 @@ function applyStateVisuals(card, state, bpm, mood) {
     startIdleCycle(card);
   } else if (state === "dancing") {
     a.el.eyeLayerDance.style.opacity = "1";
-    a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.15s ease-out";
-    a.el.eyeHalo.setAttribute("fill", "url(#haloGradDance)");
-    a.el.eyeCenter.setAttribute("fill", "#ffffff");
+    a.el.eyeHalo.style.transition = "opacity 0.15s ease-out";
+    a.setEyeHaloFill("url(#haloGradDance)");
+    a.setEyeCenterColor("#ffffff");
     a.el.eyeCenter.style.transformOrigin = "130px 364px";
-    a.el.eyeCenter.style.transition = "transform 0.1s ease-out, fill 0.8s ease-in-out";
+    a.el.eyeCenter.style.transition = "transform 0.1s ease-out";
     a.setLEDs("#1DB954", "0.15");
     a.resetBodySwivel();
     if (card.config.progress_show_in_dance !== false) updateProgressRing(card);
     startDanceCycle(card, bpm, mood);
   } else if (state === "listening") {
     a.el.eyeLayerListen.style.opacity = "1";
-    a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.8s";
-    a.el.eyeHalo.setAttribute("fill", "url(#haloGradListen)");
+    a.el.eyeHalo.style.transition = "opacity 0.8s";
+    a.setEyeHaloFill("url(#haloGradListen)");
     a.el.eyeHalo.style.opacity = "0.05";
-    a.el.eyeCenter.setAttribute("fill", "#aaffff");
+    a.setEyeCenterColor("#aaffff");
     a.setHead(4, 0, -8, 1.06, 1);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
@@ -1745,10 +1764,10 @@ function applyStateVisuals(card, state, bpm, mood) {
     a.setBodySwivel(-2, 1, 1.4);
   } else if (state === "processing") {
     a.el.eyeLayerProcess.style.opacity = "1";
-    a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.8s";
-    a.el.eyeHalo.setAttribute("fill", "url(#haloGradProcess)");
+    a.el.eyeHalo.style.transition = "opacity 0.8s";
+    a.setEyeHaloFill("url(#haloGradProcess)");
     a.el.eyeHalo.style.opacity = "0.05";
-    a.el.eyeCenter.setAttribute("fill", "#ffddaa");
+    a.setEyeCenterColor("#ffddaa");
     a.setHead(-2, 0, 10, 0.96, 1.4);
     a.setBaseLid(0.65, 0.5);
     a.setLEDs("#ff6600", "1");
@@ -1763,10 +1782,10 @@ function applyStateVisuals(card, state, bpm, mood) {
     dart();
   } else if (state === "responding") {
     a.el.eyeLayerRespond.style.opacity = "1";
-    a.el.eyeHalo.style.transition = "fill 0.8s ease-in-out, opacity 0.8s";
-    a.el.eyeHalo.setAttribute("fill", "url(#haloGradRespond)");
+    a.el.eyeHalo.style.transition = "opacity 0.8s";
+    a.setEyeHaloFill("url(#haloGradRespond)");
     a.el.eyeHalo.style.opacity = "0.05";
-    a.el.eyeCenter.setAttribute("fill", "#ffaaaa");
+    a.setEyeCenterColor("#ffaaaa");
     if (a.el.dangerRing) a.el.dangerRing.setAttribute("opacity", "1");
     a.setLEDs("#ff2200", "1");
     a.setBodySwivel(0, 1, 0.8);
@@ -1866,6 +1885,57 @@ function applyHassUpdate(card, hass) {
 }
 
 // src/template.js
+var EYE_CENTER_VARIANTS = [
+  "#ffcc00",
+  // idle
+  "#aaffff",
+  // listening
+  "#ffddaa",
+  // processing
+  "#ffaaaa",
+  // responding
+  "#ffffff",
+  // dancing default + strobe off-beat + glitch even
+  "#ff0000",
+  // tier-3 strobe downbeat
+  "#884400",
+  // idle glitch odd
+  "dynamic"
+  // out-of-set fallback (fill written directly)
+];
+var EYE_HALO_VARIANTS = [
+  "url(#haloGradIdle)",
+  // idle + glitch restore
+  "url(#haloGradDance)",
+  // dancing
+  "url(#haloGradListen)",
+  // listening
+  "url(#haloGradProcess)",
+  // processing
+  "url(#haloGradRespond)",
+  // responding
+  "#110000",
+  // idle glitch even
+  "#ffb800",
+  // idle glitch odd
+  "dynamic"
+  // out-of-set fallback (fill written directly)
+];
+function auditCrossSvgDefs(tpl) {
+  const defined = /* @__PURE__ */ new Set();
+  const backdrop = tpl.match(/<svg id="axidos-svg-backdrop"[\s\S]*?<\/svg>/);
+  if (backdrop) {
+    for (const m of backdrop[0].matchAll(/id="([^"]+)"/g)) defined.add(m[1]);
+  }
+  const missing = /* @__PURE__ */ new Set();
+  const layerRe = /<svg id="axidos-svg-(?!backdrop)[^"]*"[\s\S]*?<\/svg>/g;
+  for (const layer of tpl.match(layerRe) || []) {
+    for (const m of layer.matchAll(/url\(#([^)]+)\)/g)) {
+      if (!defined.has(m[1])) missing.add(m[1]);
+    }
+  }
+  return [...missing];
+}
 function buildTemplate(config) {
   const zoom = config.zoom !== void 0 ? config.zoom : 85;
   const scale = zoom / 100;
@@ -1880,6 +1950,8 @@ function buildTemplate(config) {
       .debug-lite #head-sway-pivot,
       .debug-lite #eye-halo.breathing { animation: none !important; }
 ` : "";
+  const VB = 'viewBox="0 116 280 320"';
+  const SVG_ATTRS = `class="axidos-layer" ${VB} xmlns="http://www.w3.org/2000/svg"`;
   return `
     <style>
       :host { display: flex; align-items: center; justify-content: center; ${bgStyle} border-radius: var(--ha-card-border-radius, 12px); overflow: hidden; width: 100%; }
@@ -1887,30 +1959,44 @@ function buildTemplate(config) {
          dashboard around it (and vice versa) on weak tablet GPUs. */
       /* flex: none \u2014 the scene keeps its exact zoomed px size; a flex item
          would otherwise shrink back to the slot width at zoom > 100, and the
-         SVG's preserveAspectRatio would pin the model at ~100%. getGridOptions()
+         layers' preserveAspectRatio would pin the model at ~100%. getGridOptions()
          grows the slot (rows AND columns) to match. */
       #scene { position: relative; flex: none; width: ${width}px; height: ${height}px; display: flex; align-items: center; justify-content: center; contain: layout paint; }
 
       #hitbox { position: absolute; inset: 0; z-index: 100; cursor: pointer; display: none; }
-      /* isolation: isolate \u2014 the SVG forms its own stacking context so its
-         compositor layers don't interleave with the rest of the dashboard. */
-      #axidos-svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; isolation: isolate; --led-color: #ffb800; --led-opacity: 0.15; }
+
+      /* ---- Layer stack (5.7.0-beta.3 layer split) ----
+         Absolutely-positioned stacked SVGs, identical viewBox, one z-band
+         each. overflow: visible keeps glows/shadows unclipped (pitfall 5a is
+         structurally avoided: no layer has a tight boundary to clip against \u2014
+         every layer spans the full viewBox). isolation per layer keeps each
+         compositor layer self-contained. */
+      svg.axidos-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; isolation: isolate; }
+      #axidos-svg-backdrop { z-index: 0; }
+      #axidos-svg-body     { z-index: 1; }
+      #axidos-svg-head     { z-index: 2; }
+      #axidos-svg-eye      { z-index: 3; }
+      /* LED consumers inherit the custom-property defaults from their layer
+         root; setLedVars() writes overrides directly on the consumer
+         elements, scoped away from the whole subtree. */
+      #axidos-svg-led      { z-index: 4; --led-color: #ffb800; --led-opacity: 0.15; }
 
       /* ---- Compositor-layer promotion ----
          Every group animated via transform gets will-change: transform so the
          browser hoists it to its own GPU layer: per-frame transform writes
          (RAF spring loop, CSS transitions) then composite on the GPU instead
          of triggering main-thread SVG repaints. Applied ONLY to groups that
-         actually animate \u2014 each hint costs GPU memory. Includes the ambient
-         sway pivots (#body-pivot, #head-sway-pivot): their infinite CSS
-         keyframe rotations repaint the whole subtree every frame unless
-         promoted. */
+         actually animate \u2014 each hint costs GPU memory. The id selectors match
+         the pivot copies in EVERY mover layer. Includes the ambient sway
+         pivots (#body-pivot, #head-sway-pivot): their infinite CSS keyframe
+         rotations would otherwise repaint their layer every frame. */
       #axidos-head, #head-bop, #torso-swivel, #bellows,
       #eyeball-assembly, #eye-pupil, #eye-lid, #eye-lid-bottom, #eye-center,
       #body-pivot, #head-sway-pivot {
         will-change: transform;
       }
-      /* Rotation/scale groups need view-box coordinates for transform-origin. */
+      /* Rotation/scale groups need view-box coordinates for transform-origin.
+         Valid in every layer: all layers share the identical viewBox. */
       #axidos-head, #head-bop, #torso-swivel, #eye-center,
       #body-pivot, #head-sway-pivot { transform-box: view-box; }
       /* Bop layer: dedicated transform group for the tap-bop spring so it
@@ -1931,11 +2017,14 @@ function buildTemplate(config) {
       #torso-swivel { transform-origin: 140px 116px; transition: transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95); }
       #axidos-head { transform-box: view-box; transform-origin: 140px 285px; transition: transform 1.6s cubic-bezier(0.34, 1.06, 0.64, 1); }
 
-      #eye-halo { transition: fill 0.8s ease-in-out; }
-      /* Eye pulse: the dance engine scales #eye-center every beat; a short
-         transform transition turns that write into an organic pulse instead
-         of a snap. Kept short so the pulse still lands on the beat. */
-      #eye-center { transition: fill 0.8s ease-in-out, transform 0.18s ease-out; }
+      /* ---- Variant crossfades (mover hygiene) ----
+         #eye-center / #eye-halo no longer transition fill (paint transitions
+         are banned inside mover layers): pre-painted variant circles
+         crossfade via CONCURRENT same-frame opacity swaps (A1). 0.8s matches
+         the old fill-transition duration, so state-entry easing is preserved.
+         The #eye-center GROUP keeps its transform pulse transition. */
+      .eye-center-variant, .eye-halo-variant { transition: opacity 0.8s ease-in-out; }
+      #eye-center { transition: transform 0.18s ease-out; }
       .eye-layer { transition: opacity 0.8s ease-in-out; }
       @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
@@ -1945,14 +2034,17 @@ ${liteCss}
 
       /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
          length IS the percentage). Smooth transitions turn sensor jumps into
-         a glide; opacity gates visibility to the idle state. */
+         a glide; opacity gates visibility to the idle state. Rare discrete
+         initiation events (sensor updates) \u2014 not per-frame motion. */
       #progress-ring {
         transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
       }
     </style>
     <div id="scene"${liteClass}>
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
-      <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+
+      <!-- ================= z0 BACKDROP \u2014 defs host, zero painted art ================= -->
+      <svg id="axidos-svg-backdrop" ${SVG_ATTRS}>
         <defs>
           <linearGradient id="ceramicGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8a8d94"/><stop offset="8%" stop-color="#b0b4bc"/><stop offset="8.5%" stop-color="#ffffff"/><stop offset="25%" stop-color="#ffffff"/><stop offset="75%" stop-color="#ffffff"/><stop offset="91.5%" stop-color="#e8eaec"/><stop offset="92%" stop-color="#a0a4ac"/><stop offset="100%" stop-color="#6a6d75"/></linearGradient>
           <linearGradient id="ceramicBackgroundGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a4d54"/><stop offset="8%" stop-color="#70747c"/><stop offset="8.5%" stop-color="#b0b4bc"/><stop offset="25%" stop-color="#b0b4bc"/><stop offset="75%" stop-color="#b0b4bc"/><stop offset="91.5%" stop-color="#a0a4ac"/><stop offset="92%" stop-color="#6a6d75"/><stop offset="100%" stop-color="#3a3d44"/></linearGradient>
@@ -1994,6 +2086,10 @@ ${liteCss}
                the clip does not translate with the pupil it clips. -->
           <clipPath id="socketClip"><circle cx="130" cy="364" r="23"/></clipPath>
         </defs>
+      </svg>
+
+      <!-- ================= z1 BODY (mover b) ================= -->
+      <svg id="axidos-svg-body" ${SVG_ATTRS}>
         <g id="body-pivot">
           <g id="torso-swivel">
             <g id="torso" transform="matrix(1.2,0,0,1.2,-28,-23.2)">
@@ -2015,29 +2111,19 @@ ${liteCss}
               <line x1="140" y1="128" x2="140" y2="210" stroke="#6a6d75" stroke-width="1"/>
               <rect x="94" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
               <rect x="96" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
-              <g id="led-matrix-left" class="led-matrix">
-                <rect class="led-dot" x="98" y="140" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="98" y="145" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="98" y="150" width="28" height="2" rx="1"/>
-              </g>
               <rect x="150" y="135" width="36" height="20" rx="2.5" fill="#050508" stroke="#101014" stroke-width="0.6"/>
               <rect x="152" y="137" width="32" height="16" rx="1.5" fill="#020202"/>
-              <g id="led-matrix-right" class="led-matrix">
-                <rect class="led-dot" x="154" y="140" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="154" y="145" width="28" height="2" rx="1"/>
-                <rect class="led-dot" x="154" y="150" width="28" height="2" rx="1"/>
-              </g>
               <circle cx="100" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-l1" cx="100" cy="180" r="1.5"/>
               <circle cx="108" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-l2" cx="108" cy="180" r="1.5"/>
               <circle cx="172" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-r1" cx="172" cy="180" r="1.5"/>
               <circle cx="180" cy="180" r="2.5" fill="#0a0a0e" stroke="#101014" stroke-width="0.5"/>
-              <circle id="ind-r2" cx="180" cy="180" r="1.5"/>
             </g>
           </g>
         </g>
+      </svg>
+
+      <!-- ================= z2 HEAD (mover a) ================= -->
+      <svg id="axidos-svg-head" ${SVG_ATTRS}>
         <g id="axidos-head-wrapper" transform="translate(0, -65)">
           <g id="head-sway-pivot">
             <g id="axidos-head">
@@ -2069,36 +2155,6 @@ ${liteCss}
                       </g>
                     </g>
                   </g>
-                  <g id="eyeball-assembly" style="transition: transform 0.15s ease-out;">
-                    <circle cx="130" cy="364" r="26" fill="#1c1e22" stroke="#000000" stroke-width="2"/>
-                    <circle cx="130" cy="364" r="23" fill="#0a0b0c"/>
-                    <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
-                    <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
-                    <circle id="eye-halo" cx="130" cy="364" r="25" fill="url(#haloGradIdle)" opacity=".05"/>
-                    <!-- Static clip wrapper: socketClip must live on a PARENT
-                         of #eye-pupil \u2014 a clip on the pupil itself would
-                         translate along with it and clip nothing. -->
-                    <g clip-path="url(#socketClip)">
-                      <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
-                      <!-- Pre-blurred glow halo (rasterized once) replaces the
-                           per-frame feGaussianBlur that used to sit on each
-                           eye layer \u2014 visually equivalent soft edge, zero
-                           filter cost while the pupil moves. -->
-                      <circle id="eye-glow" cx="130" cy="364" r="21" fill="url(#glowGrad)" opacity="0.55" pointer-events="none"/>
-                      <circle id="eye-layer-idle" cx="130" cy="364" r="17.6" fill="url(#eyeGradIdle)" class="eye-layer" opacity="1" />
-                      <circle id="eye-layer-listen" cx="130" cy="364" r="17.6" fill="url(#eyeGradListen)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-process" cx="130" cy="364" r="17.6" fill="url(#eyeGradProcess)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-respond" cx="130" cy="364" r="17.6" fill="url(#eyeGradRespond)" class="eye-layer" opacity="0" />
-                      <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
-                      <circle id="eye-center" cx="130" cy="364" r="6.6" fill="#ffe855" />
-                      <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
-                      </g>
-                    </g>
-                    <g clip-path="url(#eyeballClip)">
-                      <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>
-                      <path id="eye-lid-bottom" d="M 80,500 H 180 V 364 h -24 a 26,26 0 0 1 -52,0 H 80 Z" fill="url(#lidGradFlip)" stroke="#000000" stroke-width="2"/>
-                    </g>
-                  </g>
                 </g>
               </g>
               <path d="m 92,359 5,2 v 6 l -5,2 z" fill="#050505"/>
@@ -2115,35 +2171,136 @@ ${liteCss}
               </g>
             </g>
           </g>
+      </svg>
+
+      <!-- ================= z3 EYE (mover c) \u2014 mirror head chain =================
+           The eyeball assembly loses its ancestor transforms when lifted out
+           of the head layer, so this layer carries a MIRROR of the full head
+           pivot chain (duplicate ids). CSS id selectors match every copy (the
+           sway keyframes hit all layers in sync \u2014 one innerHTML insertion =
+           one shared animation start), and the animator writes JS transforms
+           to all copies. Only the eyeball contents are painted here, clipped
+           to the socket cavity exactly as in the monolithic artwork. -->
+      <svg id="axidos-svg-eye" ${SVG_ATTRS}>
+        <g id="axidos-head-wrapper" transform="translate(0, -65)">
+          <g id="head-sway-pivot">
+            <g id="axidos-head">
+              <g id="head-bop">
+              <g clip-path="url(#cavityClip)">
+                <g id="eyeball-assembly" style="transition: transform 0.15s ease-out;">
+                  <circle cx="130" cy="364" r="26" fill="#1c1e22" stroke="#000000" stroke-width="2"/>
+                  <circle cx="130" cy="364" r="23" fill="#0a0b0c"/>
+                  <circle cx="147" cy="388" r="3.5" fill="#1a0000" stroke="#000000" stroke-width="1"/>
+                  <circle id="indicator-dot" cx="147" cy="388" r="2.5" fill="#ff2200" opacity="0.8"/>
+                  <!-- #eye-halo is now a GROUP: the master opacity (state
+                       brightness + breathing) lives here; the state FILL is a
+                       pre-painted variant stack crossfaded with concurrent
+                       same-frame opacity swaps (A1 \u2014 never sequential). -->
+                  <g id="eye-halo" opacity=".05">
+                    <circle class="eye-halo-variant" data-fill="url(#haloGradIdle)" fill="url(#haloGradIdle)" opacity="1"/>
+                    <circle class="eye-halo-variant" data-fill="url(#haloGradDance)" fill="url(#haloGradDance)" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="url(#haloGradListen)" fill="url(#haloGradListen)" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="url(#haloGradProcess)" fill="url(#haloGradProcess)" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="url(#haloGradRespond)" fill="url(#haloGradRespond)" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="#110000" fill="#110000" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="#ffb800" fill="#ffb800" opacity="0"/>
+                    <circle class="eye-halo-variant" data-fill="dynamic" fill="#000000" opacity="0"/>
+                  </g>
+                  <!-- Static clip wrapper: socketClip must live on a PARENT
+                       of #eye-pupil \u2014 a clip on the pupil itself would
+                       translate along with it and clip nothing. -->
+                  <g clip-path="url(#socketClip)">
+                    <g id="eye-pupil" style="transition: transform 0.15s ease-out;">
+                    <!-- Pre-blurred glow halo (rasterized once) replaces the
+                         per-frame feGaussianBlur that used to sit on each
+                         eye layer \u2014 visually equivalent soft edge, zero
+                         filter cost while the pupil moves. -->
+                    <circle id="eye-glow" cx="130" cy="364" r="21" fill="url(#glowGrad)" opacity="0.55" pointer-events="none"/>
+                    <circle id="eye-layer-idle" cx="130" cy="364" r="17.6" fill="url(#eyeGradIdle)" class="eye-layer" opacity="1" />
+                    <circle id="eye-layer-listen" cx="130" cy="364" r="17.6" fill="url(#eyeGradListen)" class="eye-layer" opacity="0" />
+                    <circle id="eye-layer-process" cx="130" cy="364" r="17.6" fill="url(#eyeGradProcess)" class="eye-layer" opacity="0" />
+                    <circle id="eye-layer-respond" cx="130" cy="364" r="17.6" fill="url(#eyeGradRespond)" class="eye-layer" opacity="0" />
+                    <circle id="eye-layer-dance" cx="130" cy="364" r="17.6" fill="url(#eyeGradDance)" class="eye-layer" opacity="0" />
+                    <!-- #eye-center is now a GROUP carrying the dance pulse
+                         transform; the state/strobe FILL is the pre-painted
+                         variant stack below (concurrent opacity crossfades). -->
+                    <g id="eye-center">
+                      <circle class="eye-center-variant" data-color="#ffcc00" fill="#ffcc00" opacity="1"/>
+                      <circle class="eye-center-variant" data-color="#aaffff" fill="#aaffff" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="#ffddaa" fill="#ffddaa" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="#ffaaaa" fill="#ffaaaa" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="#ffffff" fill="#ffffff" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="#ff0000" fill="#ff0000" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="#884400" fill="#884400" opacity="0"/>
+                      <circle class="eye-center-variant" data-color="dynamic" fill="#000000" opacity="0"/>
+                    </g>
+                    <circle cx="128" cy="362" r="2.2" fill="#ffffff" opacity="0.7" />
+                    </g>
+                  </g>
+                  <g clip-path="url(#eyeballClip)">
+                    <path id="eye-lid" d="m 80,200 h 100 v 164 h -24 a 26,26 0 0 0 -52,0 H 80 Z" fill="url(#lidGrad)" stroke="#000000" stroke-width="2"/>
+                    <path id="eye-lid-bottom" d="M 80,500 H 180 V 364 h -24 a 26,26 0 0 1 -52,0 H 80 Z" fill="url(#lidGradFlip)" stroke="#000000" stroke-width="2"/>
+                  </g>
+                </g>
+              </g>
+              </g>
+              </g>
+            </g>
+          </g>
+      </svg>
+
+      <!-- ================= z4 LED (mover d) \u2014 mirror body chain =================
+           The LED matrices + indicator dots are opacity-pure animators; they
+           ride a MIRROR of the body pivot chain so they stay registered with
+           the bezel frames + sockets painted in the body layer (both track
+           the identical chain \u2014 the only cross-layer geometric register
+           risk, asserted by verify_layer_split.mjs A3b). -->
+      <svg id="axidos-svg-led" ${SVG_ATTRS}>
+        <g id="body-pivot">
+          <g id="torso-swivel">
+            <g id="torso" transform="matrix(1.2,0,0,1.2,-28,-23.2)">
+              <g id="led-matrix-left" class="led-matrix">
+                <rect class="led-dot" x="98" y="140" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="98" y="145" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="98" y="150" width="28" height="2" rx="1"/>
+              </g>
+              <g id="led-matrix-right" class="led-matrix">
+                <rect class="led-dot" x="154" y="140" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="154" y="145" width="28" height="2" rx="1"/>
+                <rect class="led-dot" x="154" y="150" width="28" height="2" rx="1"/>
+              </g>
+              <circle id="ind-l1" cx="100" cy="180" r="1.5"/>
+              <circle id="ind-l2" cx="108" cy="180" r="1.5"/>
+              <circle id="ind-r1" cx="172" cy="180" r="1.5"/>
+              <circle id="ind-r2" cx="180" cy="180" r="1.5"/>
+            </g>
+          </g>
         </g>
       </svg>
     </div>
   `;
 }
-function dprFixStyles(dpr) {
-  if (typeof dpr !== "number" || !Number.isFinite(dpr) || dpr <= 0) return null;
-  if (dpr === 1) return null;
-  const pct = 100 / dpr;
-  return [
-    `transform: scale(${dpr})`,
-    "transform-origin: 0 0",
-    `width: ${pct}%`,
-    `height: ${pct}%`,
-    "position: absolute",
-    "top: 0",
-    "left: 0"
-  ].join("; ");
-}
 
 // src/animator.js
 var AxidosAnimator = class {
-  constructor(shadowRoot) {
+  /**
+   * @param {ShadowRoot} shadowRoot - the card's shadow root
+   * @param {number} [fpsMax=60] - JS motion frame cap (5.7.0-beta.3). All
+   *   requestRaf-driven motion loops (bop spring, idle glitch) share one
+   *   frame-budget accumulator: callbacks fire at most fpsMax times per
+   *   second, with the REAL rAF timestamp forwarded so dt-based integrators
+   *   (spring.js) produce pixel-identical trajectories — only tick COUNT
+   *   drops. fpsMax >= 240 disables the gate entirely (ungated fast path).
+   */
+  constructor(shadowRoot, fpsMax = 60) {
     const root = shadowRoot;
+    this._fpsMax = typeof fpsMax === "number" && Number.isFinite(fpsMax) && fpsMax >= 30 ? fpsMax : 60;
+    this._lastGate = null;
     this.el = {
-      svg: root.getElementById("axidos-svg"),
-      head: root.getElementById("axidos-head"),
-      headBop: root.getElementById("head-bop"),
-      torsoSwivel: root.getElementById("torso-swivel"),
+      svgs: root.querySelectorAll("svg.axidos-layer"),
+      head: [...root.querySelectorAll("#axidos-head")],
+      headBop: [...root.querySelectorAll("#head-bop")],
+      torsoSwivel: [...root.querySelectorAll("#torso-swivel")],
       hitbox: root.getElementById("hitbox"),
       eyeLayerIdle: root.getElementById("eye-layer-idle"),
       eyeLayerListen: root.getElementById("eye-layer-listen"),
@@ -2161,6 +2318,10 @@ var AxidosAnimator = class {
       progressRing: root.getElementById("progress-ring"),
       ledMatrices: root.querySelectorAll(".led-matrix")
     };
+    this._centerVariants = [...root.querySelectorAll(".eye-center-variant")];
+    this._haloVariants = [...root.querySelectorAll(".eye-halo-variant")];
+    this._lastCenterColor = null;
+    this._lastHaloFill = null;
     this.ledVarTargets = [
       ...root.querySelectorAll(".led-matrix"),
       root.getElementById("ind-l1"),
@@ -2195,11 +2356,36 @@ var AxidosAnimator = class {
       this._timers.delete(name);
     }
   }
+  /**
+   * Tracked RAF with the fps_max frame-budget gate (5.7.0-beta.3). The
+   * callback fires at most 1000/fpsMax times per second; gated frames
+   * re-arm under the SAME registry name so cancelRaf/stopAll teardown
+   * semantics are unchanged (a cancel between gate frames kills the
+   * chain cleanly). The REAL rAF timestamp is always forwarded — springs
+   * integrate true elapsed dt, so visuals are pixel-identical.
+   */
   requestRaf(name, fn) {
     this.cancelRaf(name);
     const id = requestAnimationFrame((now) => {
       this._rafs.delete(name);
-      fn(now);
+      if (this._fpsMax >= 240) {
+        fn(now);
+        return;
+      }
+      const budget = 1e3 / this._fpsMax;
+      if (this._lastGate === null) {
+        this._lastGate = now;
+        fn(now);
+        return;
+      }
+      const elapsed = now - this._lastGate;
+      if (elapsed >= budget - 1) {
+        const steps = Math.max(1, Math.floor(elapsed / budget));
+        this._lastGate = Math.min(now, this._lastGate + steps * budget);
+        fn(now);
+      } else {
+        this.requestRaf(name, fn);
+      }
     });
     this._rafs.set(name, id);
     return id;
@@ -2217,19 +2403,29 @@ var AxidosAnimator = class {
     for (const id of this._rafs.values()) cancelAnimationFrame(id);
     this._timers.clear();
     this._rafs.clear();
+    this._lastGate = null;
   }
   // ---- Motion primitives (1:1 ports of the original initAxidos closures) ----
+  // Transform writes go to ALL copies of a duplicated pivot group (layer
+  // split C1/C2): the eye/LED layers carry mirror chains, and a write to
+  // only the first copy would desync the layers.
   setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
-    this.el.head.style.transition = `transform ${dur}s ${ease}`;
-    this.el.head.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
+    for (const el of this.el.head) {
+      el.style.transition = `transform ${dur}s ${ease}`;
+      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
+    }
   }
   setBodySwivel(rot, sx, dur) {
-    this.el.torsoSwivel.style.transition = `transform ${dur || 2}s cubic-bezier(0.45,0.05,0.55,0.95)`;
-    this.el.torsoSwivel.style.transform = `rotate(${rot}deg) scaleX(${sx || 1})`;
+    for (const el of this.el.torsoSwivel) {
+      el.style.transition = `transform ${dur || 2}s cubic-bezier(0.45,0.05,0.55,0.95)`;
+      el.style.transform = `rotate(${rot}deg) scaleX(${sx || 1})`;
+    }
   }
   resetBodySwivel() {
-    this.el.torsoSwivel.style.transition = `transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95)`;
-    this.el.torsoSwivel.style.transform = "";
+    for (const el of this.el.torsoSwivel) {
+      el.style.transition = `transform 2.0s cubic-bezier(0.45,0.05,0.55,0.95)`;
+      el.style.transform = "";
+    }
   }
   setLid(amount, dur = 0.7) {
     if (amount === this._lastLidAmount && dur === this._lastLidDur) return;
@@ -2271,7 +2467,9 @@ var AxidosAnimator = class {
    * Freeze all in-flight head/torso motion so a tap bop owns the head
    * exclusively. Snapshots the live computed transforms of #axidos-head and
    * #torso-swivel into their inline styles with transition disabled —
-   * halting any running CSS transition mid-flight.
+   * halting any running CSS transition mid-flight. ALL copies are frozen
+   * from their OWN computed transform (each layer's mirror must stay
+   * registered with its layer's chain).
    *
    * Used by the tap bop: pausing the idle scheduler or holding the dance
    * only stops NEW moves; without this freeze, an in-flight pose transition
@@ -2279,7 +2477,7 @@ var AxidosAnimator = class {
    * layer — two animations fighting over the same visual.
    */
   freezeHeadMotion() {
-    for (const el of [this.el.head, this.el.torsoSwivel]) {
+    for (const el of [...this.el.head, ...this.el.torsoSwivel]) {
       if (!el) continue;
       try {
         const t = getComputedStyle(el).transform;
@@ -2297,11 +2495,51 @@ var AxidosAnimator = class {
    * Ease-clear the bop layer transform (tap-bop spring layer on the head).
    * A short transition lets any residual displacement glide back to neutral
    * instead of snapping when the bop ends or a state change tears it down.
+   * Written to ALL #head-bop copies (head + eye layers).
    */
   resetBopLayer() {
-    if (this.el.headBop) {
-      this.el.headBop.style.transition = "transform 0.4s ease-out";
-      this.el.headBop.style.transform = "translate3d(0,0,0) rotate(0deg) scale(1)";
+    for (const el of this.el.headBop) {
+      el.style.transition = "transform 0.4s ease-out";
+      el.style.transform = "translate3d(0,0,0) rotate(0deg) scale(1)";
+    }
+  }
+  /**
+   * Crossfade the #eye-center variant stack to `color` (A1): the incoming
+   * variant's opacity 0→1 and the outgoing 1→0 are written in the SAME
+   * frame — never a sequential swap (both mid-flight = paint flash).
+   * Out-of-set colors write the fill directly on the 'dynamic' fallback
+   * variant and toggle its opacity. Redundant-write guarded.
+   */
+  setEyeCenterColor(color) {
+    if (color === this._lastCenterColor) return;
+    this._lastCenterColor = color;
+    this._crossfadeVariants(this._centerVariants, "data-color", color, EYE_CENTER_VARIANTS);
+  }
+  /** Same concurrent-crossfade contract for the #eye-halo variant stack. */
+  setEyeHaloFill(fill) {
+    if (fill === this._lastHaloFill) return;
+    this._lastHaloFill = fill;
+    this._crossfadeVariants(this._haloVariants, "data-fill", fill, EYE_HALO_VARIANTS);
+  }
+  /**
+   * Shared A1 crossfade: one frame, two opacity writes (in 0→1 + out 1→0).
+   * The CSS opacity transition (0.8s, template.js) interpolates both
+   * concurrently. Unknown values ride the 'dynamic' fallback variant.
+   */
+  _crossfadeVariants(variants, dataAttr, value, knownSet) {
+    if (!variants || variants.length === 0) return;
+    const known = knownSet.includes(value);
+    for (const v of variants) {
+      const isTarget = v.getAttribute(dataAttr) === value;
+      const isDynamic = v.getAttribute(dataAttr) === "dynamic";
+      if (isTarget) {
+        v.style.opacity = "1";
+      } else if (isDynamic) {
+        if (!known) v.setAttribute("fill", value);
+        v.style.opacity = known ? "0" : "1";
+      } else {
+        v.style.opacity = "0";
+      }
     }
   }
   /**
@@ -2327,14 +2565,14 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.7.0-beta.2";
+var CARD_VERSION = "5.7.0-beta.3";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;
 var HUD_REFRESH_MS = 500;
 var BEAT_WINDOW = 32;
 var HEAP_WINDOW = 120;
-var PerfMonitor = class {
+var _PerfMonitor = class _PerfMonitor {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root (HUD appended here)
    * @param {Object} [config] - sanitized card config (for the flags line)
@@ -2381,7 +2619,6 @@ var PerfMonitor = class {
     this._beatLates.push(Math.max(0, lateMs));
     if (this._beatLates.length > BEAT_WINDOW) this._beatLates.shift();
   }
-  // ---- Frame sampler ----
   _start() {
     const sample = (now) => {
       if (this._lastFrame !== null) {
@@ -2389,16 +2626,20 @@ var PerfMonitor = class {
         this._frameCount++;
         if (dt > JANK_THRESHOLD_MS) this._jankCount++;
         if (dt > this._worstFrame) this._worstFrame = dt;
-        if (this._windowStart === null) this._windowStart = now;
-        else if (now - this._windowStart >= 2e3) {
-          this._fps = Math.round(this._frameCount * 1e3 / (now - this._windowStart));
-          this._frameCount = 0;
-          this._windowStart = now;
+        if (now - this._lastProcess >= _PerfMonitor.PROCESS_INTERVAL_MS) {
+          this._lastProcess = now;
+          if (this._windowStart === null) this._windowStart = now;
+          else if (now - this._windowStart >= 2e3) {
+            this._fps = Math.round(this._frameCount * 1e3 / (now - this._windowStart));
+            this._frameCount = 0;
+            this._windowStart = now;
+          }
         }
       }
       this._lastFrame = now;
       this._rafId = requestAnimationFrame(sample);
     };
+    this._lastProcess = 0;
     this._rafId = requestAnimationFrame(sample);
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
   }
@@ -2430,10 +2671,9 @@ var PerfMonitor = class {
     const cfg = this._config || {};
     const perf = cfg.debug_perf === true;
     const lite = cfg.debug_lite === true;
-    const dprfixOn = cfg.debug_dprfix === true;
-    const dpr = typeof devicePixelRatio === "number" && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
-    const dprfix = dprfixOn ? dpr === 1 ? "on (identity, dpr 1)" : `on (dpr ${dpr})` : "off";
-    return `flags: perf ${perf ? "on" : "off"} \xB7 lite ${lite ? "on" : "off"} \xB7 dprfix: ${dprfix}`;
+    const dprfix = cfg.debug_dprfix === true ? "retired (no-op)" : "off";
+    const fpsMax = typeof cfg.fps_max === "number" && Number.isFinite(cfg.fps_max) ? cfg.fps_max : 60;
+    return `flags: perf ${perf ? "on" : "off"} \xB7 lite ${lite ? "on" : "off"} \xB7 dprfix: ${dprfix} \xB7 fps_max: ${fpsMax}`;
   }
   _renderHud() {
     let beatLine = "beat late: \u2014";
@@ -2471,6 +2711,16 @@ ${beatLine}`;
     this._hud = null;
   }
 };
+// ---- Frame sampler ----
+// Processing gate (5.7.0-beta.3): the sampler still COUNTS every RAF frame
+// (fps/jank/worst must measure the true display rate — the crbug
+// compositing investigation depends on it), but the window-close branch
+// only runs at most every PROCESS_INTERVAL_MS (≤30 Hz). The 2 s stat
+// windows are wall-clock based, so the fps value stays statistically
+// valid — the window just closes on a processing tick instead of every
+// frame.
+__publicField(_PerfMonitor, "PROCESS_INTERVAL_MS", 33);
+var PerfMonitor = _PerfMonitor;
 
 // src/axidos-card.js
 var AxidosCard = class extends HTMLElement {
@@ -2556,20 +2806,30 @@ var AxidosCard = class extends HTMLElement {
       if (!visible && !this._offscreen) {
         this._offscreen = true;
         this._teardownAnimation();
-        this.animator.el.svg.style.animationPlayState = "paused";
-        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
-          e.style.animationPlayState = "paused";
-        });
+        this._setSwayPaused("paused");
       } else if (visible && this._offscreen) {
         this._offscreen = false;
-        this.animator.el.svg.style.animationPlayState = "";
-        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
-          e.style.animationPlayState = "";
-        });
+        this._setSwayPaused("");
         applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     }, { threshold: 0.05 });
     this._intersectionObserver.observe(this);
+  }
+  /**
+   * Pause/resume the ambient sway keyframes across ALL mover layers (layer
+   * split): the pivot copies live in every layer, and pausing only the first
+   * would desync the stack. Also the A4 freeze fixture: the pixel-diff
+   * harness calls this with 'paused' (plus _teardownAnimation) to freeze all
+   * motion for static-frame captures.
+   * @param {string} state - 'paused' or ''
+   */
+  _setSwayPaused(state) {
+    if (!this.animator) return;
+    for (const svg of this.animator.el.svgs) {
+      svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
+        e.style.animationPlayState = state;
+      });
+    }
   }
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
   connectedCallback() {
@@ -2626,11 +2886,21 @@ var AxidosCard = class extends HTMLElement {
     }
   }
   setupDOM() {
-    this.shadowRoot.innerHTML = buildTemplate(this.config);
+    const tpl = buildTemplate(this.config);
+    this.shadowRoot.innerHTML = tpl;
+    const missing = auditCrossSvgDefs(tpl);
+    if (missing.length > 0) {
+      console.warn("axidos-card: cross-SVG defs unresolved, injecting per-layer copies:", missing);
+      const backdrop = this.shadowRoot.getElementById("axidos-svg-backdrop");
+      const defs = backdrop ? backdrop.querySelector("defs") : null;
+      if (defs) {
+        for (const svg of this.shadowRoot.querySelectorAll("svg.axidos-layer:not(#axidos-svg-backdrop)")) {
+          svg.insertBefore(defs.cloneNode(true), svg.firstChild);
+        }
+      }
+    }
     if (this.config.debug_dprfix === true) {
-      const svg = this.shadowRoot.getElementById("axidos-svg");
-      const css = dprFixStyles(typeof devicePixelRatio === "number" ? devicePixelRatio : 1);
-      if (svg && css) svg.style.cssText = css;
+      console.info("axidos-card: debug_dprfix is retired (no-op) since 5.7.0-beta.3 \u2014 the layer split replaced the single-SVG compositing path.");
     }
     if (this.perf) {
       this.perf.destroy();
@@ -2641,7 +2911,7 @@ var AxidosCard = class extends HTMLElement {
     }
   }
   initAxidos() {
-    this.animator = new AxidosAnimator(this.shadowRoot);
+    this.animator = new AxidosAnimator(this.shadowRoot, this.config?.fps_max ?? 60);
     this._hitbox = this.animator.el.hitbox;
     if (this._tapHandler && this._hitbox) {
       this._hitbox.removeEventListener("click", this._tapHandler);
@@ -2682,15 +2952,9 @@ var AxidosCard = class extends HTMLElement {
       if (!this.isConnected) return;
       if (document.hidden) {
         this._teardownAnimation();
-        this.animator.el.svg.style.animationPlayState = "paused";
-        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
-          e.style.animationPlayState = "paused";
-        });
+        this._setSwayPaused("paused");
       } else {
-        this.animator.el.svg.style.animationPlayState = "";
-        this.animator.el.svg.querySelectorAll("#body-pivot, #head-sway-pivot").forEach((e) => {
-          e.style.animationPlayState = "";
-        });
+        this._setSwayPaused("");
         applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     };

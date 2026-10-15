@@ -90,6 +90,11 @@ function makeAnimator() {
     setBodySwivel(rot, sx, dur) { this._swivelCalls.push({ rot, dur }); },
     setLid() {}, setBaseLid(v) { this.currentBaseLid = v; },
     setPupil() {}, setBellows(p) { this._bellowsCalls.push(p); }, setLEDs(c, o) { this.currentLedColor = c; this.currentLedOpacity = o; }, setLedVars() {},
+    // Layer-split API (5.7.0-beta.3): variant crossfades recorded for the
+    // strobe contract checks.
+    _centerColors: [],
+    setEyeCenterColor(c) { this._centerColors.push(c); },
+    setEyeHaloFill() {},
     stopAll() { this._timers.clear(); this._rafs.clear(); },
   };
   return a;

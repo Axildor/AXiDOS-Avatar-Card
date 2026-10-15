@@ -106,6 +106,15 @@ export class PerfMonitor {
 
   // ---- Frame sampler ----
 
+  // Processing gate (5.7.0-beta.3): the sampler still COUNTS every RAF frame
+  // (fps/jank/worst must measure the true display rate — the crbug
+  // compositing investigation depends on it), but the window-close branch
+  // only runs at most every PROCESS_INTERVAL_MS (≤30 Hz). The 2 s stat
+  // windows are wall-clock based, so the fps value stays statistically
+  // valid — the window just closes on a processing tick instead of every
+  // frame.
+  static PROCESS_INTERVAL_MS = 33;
+
   _start() {
     const sample = (now) => {
       if (this._lastFrame !== null) {
@@ -113,16 +122,21 @@ export class PerfMonitor {
         this._frameCount++;
         if (dt > JANK_THRESHOLD_MS) this._jankCount++;
         if (dt > this._worstFrame) this._worstFrame = dt;
-        if (this._windowStart === null) this._windowStart = now;
-        else if (now - this._windowStart >= 2000) {
-          this._fps = Math.round((this._frameCount * 1000) / (now - this._windowStart));
-          this._frameCount = 0;
-          this._windowStart = now;
+        // ≤30 Hz processing gate: window bookkeeping only when due.
+        if (now - this._lastProcess >= PerfMonitor.PROCESS_INTERVAL_MS) {
+          this._lastProcess = now;
+          if (this._windowStart === null) this._windowStart = now;
+          else if (now - this._windowStart >= 2000) {
+            this._fps = Math.round((this._frameCount * 1000) / (now - this._windowStart));
+            this._frameCount = 0;
+            this._windowStart = now;
+          }
         }
       }
       this._lastFrame = now;
       this._rafId = requestAnimationFrame(sample);
     };
+    this._lastProcess = 0;
     this._rafId = requestAnimationFrame(sample);
 
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
@@ -155,16 +169,14 @@ export class PerfMonitor {
     const cfg = this._config || {};
     const perf = cfg.debug_perf === true;
     const lite = cfg.debug_lite === true;
-    const dprfixOn = cfg.debug_dprfix === true;
-    const dpr = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio)
-      ? devicePixelRatio : 1;
-    // Resolve the dprfix state at DSF == 1: the workaround is a structural
-    // no-op there (dprFixStyles returns null), so a DSF-1 tester must not
-    // expect a visible change and file a false regression.
-    const dprfix = dprfixOn
-      ? (dpr === 1 ? 'on (identity, dpr 1)' : `on (dpr ${dpr})`)
-      : 'off';
-    return `flags: perf ${perf ? 'on' : 'off'} · lite ${lite ? 'on' : 'off'} · dprfix: ${dprfix}`;
+    // dprfix RETIRED (5.7.0-beta.3): the crbug 449095626 scale wrapper was
+    // falsified on device and the layer split replaced the single-SVG
+    // compositing path. The key stays accepted but is a no-op — the HUD
+    // shows "retired" so a stale config is identifiable on the tablet.
+    const dprfix = cfg.debug_dprfix === true ? 'retired (no-op)' : 'off';
+    const fpsMax = (typeof cfg.fps_max === 'number' && Number.isFinite(cfg.fps_max))
+      ? cfg.fps_max : 60;
+    return `flags: perf ${perf ? 'on' : 'off'} · lite ${lite ? 'on' : 'off'} · dprfix: ${dprfix} · fps_max: ${fpsMax}`;
   }
 
   _renderHud() {

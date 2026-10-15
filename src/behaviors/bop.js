@@ -177,11 +177,16 @@ export function bopHead(card) {
     const ty = spring.position;
     const rot = spring.position * 0.15;
     const scale = 1.0 - Math.abs(spring.position) * 0.003;
-    if (a.el.headBop) {
+    if (a.el.headBop && a.el.headBop.length) {
+      // Layer split: #head-bop exists in the head AND eye layers (mirror
+      // chains) — the bop writes ALL copies so the eye stays registered
+      // with the head during the bounce.
       const t = `translate3d(0, ${ty.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
       if (t !== lastWrittenTransform) {
-        a.el.headBop.style.transition = 'none';
-        a.el.headBop.style.transform = t;
+        for (const bop of a.el.headBop) {
+          bop.style.transition = 'none';
+          bop.style.transform = t;
+        }
         lastWrittenTransform = t;
       }
     }

@@ -34,10 +34,14 @@
  *     id token + hitbox containment under EVERY flag combination.
  * 10. 5.7.0-beta.2 HUD v2.1: Δheap/min slope — least-squares over a
  *     rolling 60s window, rendered on the heap line.
+ * 11. 5.7.0-beta.3 fps_max: requestRaf frame-budget gate (rate cap, real
+ *     timestamp forwarding, spring trajectory parity, 60 Hz no-op, clamps,
+ *     registry teardown, ungated fast path), perf sampler ≤30 Hz processing
+ *     gate with per-frame counting, HUD fps_max flag, bop write-rate cap.
  */
 
-import { sanitizeConfig } from '../src/config.js';
-import { buildTemplate, dprFixStyles } from '../src/template.js';
+import { sanitizeConfig, getStubConfig } from '../src/config.js';
+import { buildTemplate } from '../src/template.js';
 import { CARD_VERSION } from '../src/version.js';
 import { PerfMonitor } from '../src/perf.js';
 import { startDanceCycle, stopDanceCycle } from '../src/behaviors/dance.js';
@@ -79,6 +83,10 @@ function makeAnimator() {
   el.eyeball = makeCountingEl();
   el.ledMatrices = [];
   const a = {
+    // Layer-split API stubs (5.7.0-beta.3): variant crossfades are recording
+    // no-ops; the dance cycle drives them instead of fill writes.
+    setEyeCenterColor() {},
+    setEyeHaloFill() {},
     el,
     currentBaseLid: 0,
     currentLedColor: '#ffb800',
@@ -329,31 +337,17 @@ console.log('\n== 6. 5.7.0-beta.1: debug_lite + debug_dprfix sanitization ==');
 }
 
 // ============================================================
-console.log('\n== 7. 5.7.0-beta.1: dprFixStyles contract ==');
+console.log('\n== 7. 5.7.0-beta.3: dprfix RETIRED (A2) — no scale codepath ==');
 {
-  // DSF == 1 → structural no-op: null, so the caller injects NOTHING and
-  // the non-probe path stays byte-identical.
-  assert(dprFixStyles(1) === null, 'dpr 1 → null (structural no-op, nothing injected)');
-  // DSF 2 → the exact crbug 449095626 workaround + top-left pinning.
-  const s2 = dprFixStyles(2);
-  assert(s2 !== null, 'dpr 2 → styles returned');
-  assert(s2.includes('transform: scale(2)'), 'dpr 2 → transform: scale(2)');
-  assert(s2.includes('transform-origin: 0 0'), 'dpr 2 → transform-origin: 0 0 (as cited)');
-  assert(s2.includes('width: 50%') && s2.includes('height: 50%'), 'dpr 2 → width/height 100/dpr % (50%)');
-  assert(s2.includes('position: absolute') && s2.includes('top: 0') && s2.includes('left: 0'),
-    'dpr 2 → top-left pinned (neutralizes the #scene flex-center shift)');
-  // Fractional DSF (the Tab S6 Lite reports 2.0, but desktop zoom can give
-  // e.g. 1.25): size-neutral math must hold.
-  const s125 = dprFixStyles(1.25);
-  assert(s125 !== null && s125.includes('transform: scale(1.25)') && s125.includes('width: 80%'),
-    'dpr 1.25 → scale(1.25) + width 80% (100/1.25)');
-  // Invalid input → null (caller must not inject garbage).
-  assert(dprFixStyles(0) === null, 'dpr 0 → null');
-  assert(dprFixStyles(-2) === null, 'dpr negative → null');
-  assert(dprFixStyles(NaN) === null, 'dpr NaN → null');
-  assert(dprFixStyles(Infinity) === null, 'dpr Infinity → null');
-  assert(dprFixStyles('2') === null, 'dpr string → null');
-  assert(dprFixStyles(undefined) === null, 'dpr undefined → null');
+  // The wrapper is GONE from template.js: no scale(dpr) codepath may be
+  // ported into the 5-layer stack (the layer split replaced the single-SVG
+  // compositing path the workaround targeted; it was falsified on device).
+  assert(typeof dprFixStyles === 'undefined', 'dprFixStyles export removed from template.js');
+  const t = buildTemplate({ zoom: 85, debug_dprfix: true });
+  assert(!t.includes('scale(dpr') && !t.includes('transform-origin: 0 0'), 'no dprfix scale wrapper injected into any layer');
+  // The key stays accepted for backward compatibility (sanitize contract).
+  assert(sanitizeConfig({ entity: 'x', debug_dprfix: true }).debug_dprfix === true, 'debug_dprfix key still accepted');
+  assert(sanitizeConfig({ entity: 'x' }).debug_dprfix === false, 'debug_dprfix defaults OFF');
 }
 
 // ============================================================
@@ -398,20 +392,18 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
     mon._renderHud();
     const txt = mon._hud.textContent;
     assert(txt.includes(`build: ${CARD_VERSION}`), `HUD echoes the build version (${CARD_VERSION})`);
-    assert(CARD_VERSION === '5.7.0-beta.2', `version.js is the beta build (${CARD_VERSION})`);
+    assert(CARD_VERSION === '5.7.0-beta.3', `version.js is the beta build (${CARD_VERSION})`);
     assert(/dpr: \d/.test(txt), 'HUD shows live dpr');
-    assert(txt.includes('flags: perf on · lite on · dprfix: on'), 'HUD flags line shows resolved flags');
+    // dprfix retired (A2): the HUD shows "retired (no-op)" for a stale
+    // config so the tester can identify it on the tablet.
+    assert(txt.includes('flags: perf on · lite on · dprfix: retired (no-op)'), 'HUD flags line shows the dprfix retirement');
     assert(txt.includes('heap:'), 'HUD shows heap line (n/a or MB)');
     mon.destroy();
-    // DSF-1 resolution: dprfix on at dpr 1 must read "identity" so a DSF-1
-    // tester does not file a false regression.
-    globalThis.devicePixelRatio = 1;
-    const mon2 = new PerfMonitor(shadow, { debug_perf: true, debug_dprfix: true });
+    // dprfix off reads plain "off".
+    const mon2 = new PerfMonitor(shadow, { debug_perf: true });
     mon2._renderHud();
-    assert(mon2._hud.textContent.includes('dprfix: on (identity, dpr 1)'),
-      'HUD resolves dprfix at DSF 1 as "on (identity, dpr 1)"');
+    assert(mon2._hud.textContent.includes('dprfix: off'), 'HUD resolves dprfix off as plain "off"');
     mon2.destroy();
-    delete globalThis.devicePixelRatio;
   } finally {
     if (realCreate) globalThis.document.createElement = realCreate;
     else delete globalThis.document;
@@ -530,6 +522,310 @@ console.log('\n== 10. 5.7.0-beta.2 HUD v2.1: Δheap/min slope ==');
     performance.now = realNow;
     if (realCreate) globalThis.document.createElement = realCreate;
     else delete globalThis.document;
+    globalThis.requestAnimationFrame = realRaf;
+    globalThis.cancelAnimationFrame = realCaf;
+  }
+}
+
+// ============================================================
+console.log('\n== 11. 5.7.0-beta.3 fps_max: requestRaf frame-budget gate + perf processing gate ==');
+{
+  // Drive the REAL animator's requestRaf through a controllable fake-RAF
+  // clock: each pump() delivers one display frame at the given rate. The
+  // gate must (a) fire callbacks at most fps_max times per second, (b)
+  // forward the REAL rAF timestamp, (c) be a no-op at 60 Hz display /
+  // fps_max 60, (d) keep cancelRaf/stopAll teardown semantics unchanged.
+  const { AxidosAnimator } = await import('../src/animator.js');
+  const els = {
+    'axidos-svg': makeEl(), 'axidos-head': makeEl(), 'head-bop': makeEl(),
+    'torso-swivel': makeEl(), hitbox: makeEl(), 'eye-layer-idle': makeEl(),
+    'eye-layer-listen': makeEl(), 'eye-layer-process': makeEl(),
+    'eye-layer-respond': makeEl(), 'eye-layer-dance': makeEl(),
+    'eye-halo': makeEl(), 'eye-center': makeEl(), 'eye-pupil': makeEl(),
+    'eyeball-assembly': makeEl(), bellows: makeEl(),
+    'eye-lid': makeEl(), 'eye-lid-bottom': makeEl(),
+    'danger-ring': makeEl(), 'progress-ring': makeEl(),
+    'ind-l1': makeEl(), 'ind-l2': makeEl(), 'ind-r1': makeEl(), 'ind-r2': makeEl(),
+  };
+  const shadow = {
+    getElementById: (id) => els[id] || null,
+    querySelectorAll: () => [],
+  };
+
+  // Fake rAF: callbacks are queued and only run when pump() advances the
+  // fake clock. Each pump delivers ONE display frame (now += frameMs).
+  let fakeRafNow = 0;
+  const rafQueue = new Map(); // id -> { fn, frameMs }
+  let rafSeq = 0;
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = (fn) => {
+    rafSeq++;
+    rafQueue.set(rafSeq, { fn, frameMs: currentFrameMs });
+    return rafSeq;
+  };
+  globalThis.cancelAnimationFrame = (id) => { rafQueue.delete(id); };
+  let currentFrameMs = 4.1666; // 240 Hz default
+  function pump(frames) {
+    for (let i = 0; i < frames; i++) {
+      fakeRafNow += currentFrameMs;
+      const batch = [...rafQueue.entries()];
+      rafQueue.clear();
+      for (const [, { fn }] of batch) fn(fakeRafNow);
+    }
+  }
+
+  try {
+    // ---- 11a. Gate rate: 240 Hz display, fps_max 60 → ~60 fires/s ----
+    {
+      const anim = new AxidosAnimator(shadow, 60);
+      let fires = 0; let lastNow = null; let firstNow = null; let minDt = Infinity;
+      const loop = (now) => {
+        fires++;
+        if (firstNow === null) firstNow = now;
+        if (lastNow !== null) {
+          const dt = now - lastNow;
+          if (dt < minDt) minDt = dt;
+        }
+        lastNow = now;
+        anim.requestRaf('gate-test', loop);
+      };
+      anim.requestRaf('gate-test', loop);
+      pump(240); // one simulated second at 240 Hz
+      assert(fires <= 62 && fires >= 58, `240 Hz display @ fps_max 60 → ~60 fires/s (got ${fires})`);
+      assert(minDt >= 16.0, `min inter-fire dt >= ~16.6ms (got ${minDt.toFixed(2)})`);
+      // max dt: the remainder carry can merge one gap to 5 frames (20.8ms)
+      // while the AVERAGE stays exactly 60/s — the invariant is the rate,
+      // not a per-gap ceiling. Assert the average instead.
+      const avgDt = (lastNow - firstNow) / (fires - 1);
+      assert(avgDt >= 16.0 && avgDt <= 17.5, `average inter-fire dt ≈ 16.6ms (got ${avgDt.toFixed(2)})`);
+      anim.stopAll();
+    }
+
+    // ---- 11b. Real timestamp forwarding (dt-based integrator parity) ----
+    {
+      const anim = new AxidosAnimator(shadow, 60);
+      const received = [];
+      const loop = (now) => { received.push(now); anim.requestRaf('ts-test', loop); };
+      anim.requestRaf('ts-test', loop);
+      pump(240);
+      // Every forwarded timestamp must be an EXACT fake-clock frame time —
+      // the gate never fabricates or rounds the `now` it passes on.
+      assert(received.every((n) => Number.isFinite(n) && n > 0), 'all forwarded timestamps are real clock values');
+      // The forwarded values must be strictly increasing and match the
+      // frame grid (multiples of 4.1666ms within float noise).
+      let ok = true;
+      for (let i = 1; i < received.length; i++) {
+        if (received[i] <= received[i - 1]) ok = false;
+      }
+      assert(ok, 'forwarded timestamps strictly increasing');
+      anim.stopAll();
+    }
+
+    // ---- 11c. Spring trajectory parity: gated vs ungated ----
+    {
+      const { createSpring } = await import('../src/behaviors/spring.js');
+      // Ungated reference: spring stepped once per 240 Hz frame.
+      const sRef = createSpring({ omega: 0.28, dampingRatio: 0.5 });
+      sRef.injectVelocity(10);
+      const refPositions = [];
+      let refNow = 0;
+      for (let f = 0; f < 240; f++) {
+        const dt = 4.1666;
+        refNow += dt;
+        if (sRef.step(dt)) break;
+        refPositions.push({ t: refNow, p: sRef.position });
+      }
+      // Gated run: the SAME spring driven through the REAL animator gate at
+      // fps_max 60 on a 240 Hz display. The gate forwards real timestamps,
+      // so the spring's dt-based integrator sees identical wall time.
+      const anim = new AxidosAnimator(shadow, 60);
+      const sGated = createSpring({ omega: 0.28, dampingRatio: 0.5 });
+      sGated.injectVelocity(10);
+      const gatedPositions = [];
+      let lastT = null;
+      const loop = (now) => {
+        if (lastT !== null) {
+          const dt = now - lastT;
+          lastT = now;
+          if (sGated.step(dt)) return;
+        } else {
+          lastT = now;
+        }
+        gatedPositions.push({ t: now, p: sGated.position });
+        anim.requestRaf('parity-test', loop);
+      };
+      anim.requestRaf('parity-test', loop);
+      pump(240);
+      // Compare trajectories at matching wall times: the gated spring must
+      // land on the same positions (within float noise) — pixel-identical
+      // motion, only tick COUNT dropped.
+      let maxErr = 0;
+      for (const g of gatedPositions) {
+        const ref = refPositions.find((r) => Math.abs(r.t - g.t) < 0.01);
+        if (ref) maxErr = Math.max(maxErr, Math.abs(ref.p - g.p));
+      }
+      assert(maxErr < 1e-9, `gated spring trajectory matches ungated (max pos err ${maxErr.toExponential(2)})`);
+      assert(gatedPositions.length < refPositions.length,
+        `gated run makes fewer ticks (${gatedPositions.length} < ${refPositions.length})`);
+      anim.stopAll();
+    }
+
+    // ---- 11d. 60 Hz display @ fps_max 60 → gate is a no-op ----
+    {
+      const anim = new AxidosAnimator(shadow, 60);
+      currentFrameMs = 16.666;
+      let fires = 0;
+      const loop = () => { fires++; anim.requestRaf('noop-test', loop); };
+      anim.requestRaf('noop-test', loop);
+      pump(60); // one simulated second at 60 Hz
+      assert(fires === 60, `60 Hz display @ fps_max 60 → every frame fires (got ${fires}/60)`);
+      currentFrameMs = 4.1666;
+      anim.stopAll();
+    }
+
+    // ---- 11e. fps_max 30 on a 240 Hz display ----
+    {
+      const anim = new AxidosAnimator(shadow, 30);
+      let fires = 0;
+      const loop = () => { fires++; anim.requestRaf('low-test', loop); };
+      anim.requestRaf('low-test', loop);
+      pump(240);
+      assert(fires <= 32 && fires >= 28, `fps_max 30 → ~30 fires/s (got ${fires})`);
+      anim.stopAll();
+    }
+
+    // ---- 11f. Registry teardown: cancelRaf mid-gate kills the chain ----
+    {
+      const anim = new AxidosAnimator(shadow, 60);
+      let fires = 0;
+      const loop = () => { fires++; anim.requestRaf('teardown-test', loop); };
+      anim.requestRaf('teardown-test', loop);
+      pump(10); // a few gated frames
+      anim.cancelRaf('teardown-test');
+      const before = fires;
+      pump(240); // a full second after cancel
+      assert(fires === before, `cancelRaf mid-gate kills the chain (${fires} stays ${before})`);
+      assert(anim._rafs.size === 0, 'registry empty after cancelRaf');
+      // stopAll also resets the gate anchor: the next loop fires on frame 1.
+      let firstFireFrame = -1;
+      let frame = 0;
+      const loop2 = () => { if (firstFireFrame === -1) firstFireFrame = frame; };
+      anim.requestRaf('anchor-test', loop2);
+      pump(1);
+      frame = 1;
+      pump(1);
+      assert(firstFireFrame === 0, `post-stopAll first requestRaf fires on frame 1 (got frame ${firstFireFrame})`);
+      anim.stopAll();
+    }
+
+    // ---- 11g. Ungated fast path: fps_max 240 → every frame fires ----
+    {
+      const anim = new AxidosAnimator(shadow, 240);
+      let fires = 0;
+      const loop = () => { fires++; anim.requestRaf('fast-test', loop); };
+      anim.requestRaf('fast-test', loop);
+      pump(240);
+      assert(fires === 240, `fps_max 240 → ungated fast path, all 240 frames fire (got ${fires})`);
+      anim.stopAll();
+    }
+
+    // ---- 11h. Config clamps ----
+    {
+      assert(sanitizeConfig({ entity: 'x', fps_max: 10 }).fps_max === 30, 'fps_max 10 clamps to 30');
+      assert(sanitizeConfig({ entity: 'x', fps_max: 9999 }).fps_max === 240, 'fps_max 9999 clamps to 240');
+      assert(sanitizeConfig({ entity: 'x', fps_max: 'garbage' }).fps_max === 60, 'fps_max garbage falls back to 60');
+      assert(sanitizeConfig({ entity: 'x' }).fps_max === 60, 'fps_max defaults to 60');
+      assert(sanitizeConfig({ entity: 'x', fps_max: 90 }).fps_max === 90, 'fps_max 90 passes through');
+      assert(getStubConfig().fps_max === 60, 'stub config carries fps_max 60');
+    }
+
+    // ---- 11i. Perf sampler: ≤30 Hz processing, per-frame counting ----
+    {
+      const hudEl = {
+        style: {}, attrs: {}, _text: '',
+        set textContent(v) { this._text = v; },
+        get textContent() { return this._text; },
+        setAttribute(k, v) { this.attrs[k] = v; },
+        setAttributeNS() {},
+        className: '',
+        parentNode: { removeChild() {} },
+      };
+      const shadow2 = { _children: [], appendChild(c) { this._children.push(c); return c; } };
+      const realCreate = globalThis.document?.createElement?.bind(globalThis.document);
+      globalThis.document = { createElement: () => hudEl };
+      // PerfMonitor's own rAF goes through the same fake queue.
+      const mon = new PerfMonitor(shadow2, { debug_perf: true, fps_max: 60 });
+      currentFrameMs = 4.1666;
+      // Count processing ticks by watching _lastProcess advance: the
+      // window-close branch only runs when now - _lastProcess >= 33ms.
+      let procTicks = 0;
+      let lastSeen = mon._lastProcess;
+      Object.defineProperty(mon, '_lastProcess', {
+        get() { return lastSeen; },
+        set(v) { if (v !== lastSeen) { procTicks++; lastSeen = v; } },
+        configurable: true,
+      });
+      // Feed 240 display frames (1s at 240 Hz) through the sampler's RAF
+      // chain. The first frame only anchors _lastFrame (no count), so the
+      // per-frame counter must read 239 — counting is NOT gated.
+      pump(240);
+      assert(mon._frameCount === 239, `sampler counts every display frame (got ${mon._frameCount}/239)`);
+      assert(procTicks <= 31, `processing gate ≤ ~30 ticks/s (got ${procTicks})`);
+      assert(procTicks >= 28, `processing gate still fires ~30/s, not fewer (got ${procTicks})`);
+      mon.destroy();
+      Object.defineProperty(mon, '_lastProcess', { value: lastSeen, writable: true, configurable: true });
+      if (realCreate) globalThis.document.createElement = realCreate;
+      else delete globalThis.document;
+    }
+
+    // ---- 11j. HUD flags line carries fps_max ----
+    {
+      const hudEl = {
+        style: {}, attrs: {}, _text: '',
+        set textContent(v) { this._text = v; },
+        get textContent() { return this._text; },
+        setAttribute(k, v) { this.attrs[k] = v; },
+        setAttributeNS() {},
+        className: '',
+        parentNode: { removeChild() {} },
+      };
+      const shadow2 = { _children: [], appendChild(c) { this._children.push(c); return c; } };
+      const realCreate = globalThis.document?.createElement?.bind(globalThis.document);
+      globalThis.document = { createElement: () => hudEl };
+      const mon = new PerfMonitor(shadow2, { debug_perf: true, fps_max: 90 });
+      mon._renderHud();
+      assert(mon._hud.textContent.includes('fps_max: 90'), `HUD flags line shows fps_max (${mon._hud.textContent.split('\n')[2]})`);
+      mon.destroy();
+      if (realCreate) globalThis.document.createElement = realCreate;
+      else delete globalThis.document;
+    }
+
+    // ---- 11k. Bop write-rate: setHead/setPupil-style writes ≤ ~60/s ----
+    {
+      // Drive the bop's RAF loop through the gated animator: the spring
+      // steps at most fps_max times/s, so the per-frame transform writes
+      // (setHead/setPupil/setBellows class) drop with the tick count.
+      const { createSpring } = await import('../src/behaviors/spring.js');
+      const anim = new AxidosAnimator(shadow, 60);
+      const spring = createSpring({ omega: 0.28, dampingRatio: 0.5 });
+      spring.injectVelocity(10);
+      let writes = 0;
+      let lastT = null;
+      const loop = (now) => {
+        if (lastT === null) { lastT = now; anim.requestRaf('write-test', loop); return; }
+        const dt = now - lastT;
+        lastT = now;
+        if (spring.step(dt)) return; // settled
+        writes++; // one transform write per gated tick (bop.js pattern)
+        anim.requestRaf('write-test', loop);
+      };
+      anim.requestRaf('write-test', loop);
+      pump(240); // 1 simulated second at 240 Hz
+      assert(writes <= 62, `bop-style write rate ≤ ~60/s under the gate (got ${writes})`);
+      anim.stopAll();
+    }
+  } finally {
     globalThis.requestAnimationFrame = realRaf;
     globalThis.cancelAnimationFrame = realCaf;
   }

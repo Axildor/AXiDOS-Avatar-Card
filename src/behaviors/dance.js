@@ -186,14 +186,16 @@ export function startDanceCycle(card, bpm, mood) {
     // Eye halo: peak phrases burn brighter (personality law).
     const halo = move.halo ? String(move.halo) : '0.5';
     if (lastHalo !== halo) { a.el.eyeHalo.style.opacity = halo; lastHalo = halo; }
-    // Strobe (wildest tier-3 phrase): #eye-center fill toggles EVERY beat —
+    // Strobe (wildest tier-3 phrase): the pupil color toggles EVERY beat —
     // red on the downbeat, white on the off-beat (legacy red/white strobe).
-    // Non-strobe phrases hold the dance default white.
+    // Non-strobe phrases hold the dance default white. Layer split: these
+    // are variant-stack crossfades (concurrent same-frame opacity swaps) —
+    // no fill transitions inside mover layers.
     if (move.strobe) {
       const fill = isDownBeat ? '#ff0000' : '#ffffff';
-      if (lastStrobeFill !== fill) { a.el.eyeCenter.setAttribute('fill', fill); lastStrobeFill = fill; }
+      if (lastStrobeFill !== fill) { a.setEyeCenterColor(fill); lastStrobeFill = fill; }
     } else if (lastStrobeFill !== null && lastStrobeFill !== '#ffffff') {
-      a.el.eyeCenter.setAttribute('fill', '#ffffff');
+      a.setEyeCenterColor('#ffffff');
       lastStrobeFill = '#ffffff';
     }
     // Eye pulse: #eye-center carries a short CSS transform transition (see
@@ -315,7 +317,8 @@ export function stopDanceCycle(card) {
   delete card._retuneDance; // the in-place retune hook dies with the cycle
   // Reset the strobe fill so a dance ending mid-strobe doesn't leave the
   // pupil red (each state sets its own fill right after, but be explicit).
-  if (a.el.eyeCenter) a.el.eyeCenter.setAttribute('fill', '#ffffff');
+  // Layer split: variant-stack crossfade, not a fill write.
+  if (a.el.eyeCenter) a.setEyeCenterColor('#ffffff');
   // CSS transitions complete on their own — there is no WAAPI animation to
   // cancel and no fill:forwards snap. The head glides to its last target and
   // the next state's setHead() retargets it from there.

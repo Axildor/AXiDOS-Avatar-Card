@@ -113,19 +113,19 @@ const IDLE_BEHAVIORS = [
           if (card._state !== 'idle' || count > 12) {
             a.cancelRaf('idle-glitch');
             if (card._state === 'idle') {
-              a.el.eyeHalo.setAttribute('fill', 'url(#haloGradIdle)');
-              a.el.eyeCenter.setAttribute('fill', '#ffcc00');
+              a.setEyeHaloFill('url(#haloGradIdle)');
+              a.setEyeCenterColor('#ffcc00');
               a.setHead(0, 0, 0, 1.0, 0.4);
             }
             return;
           }
           a.setHead((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 1.0, 0.05, 'linear');
           if (count % 2 === 0) {
-            a.el.eyeHalo.setAttribute('fill', '#110000');
-            a.el.eyeCenter.setAttribute('fill', '#884400');
+            a.setEyeHaloFill('#110000');
+            a.setEyeCenterColor('#884400');
           } else {
-            a.el.eyeHalo.setAttribute('fill', '#ffb800');
-            a.el.eyeCenter.setAttribute('fill', '#ffffff');
+            a.setEyeHaloFill('#ffb800');
+            a.setEyeCenterColor('#ffffff');
           }
           count++;
         }
@@ -196,12 +196,17 @@ export function startIdleHeadPoses(card) {
   // than snapping (the frozen inline transform has transition: none).
   const a = card.animator;
   try {
-    const t = getComputedStyle(a.el.head).transform;
-    if (t && t !== 'none') {
-      a.el.head.style.transition = 'transform 0.6s cubic-bezier(0.34,1.06,0.64,1)';
-      a.el.head.style.transform = t;
-    } else {
-      a.el.head.style.transition = '';
+    // Layer split: #axidos-head exists in the head AND eye layers (mirror
+    // chains). Each copy is un-frozen from its OWN computed transform so
+    // both stay registered.
+    for (const head of a.el.head) {
+      const t = getComputedStyle(head).transform;
+      if (t && t !== 'none') {
+        head.style.transition = 'transform 0.6s cubic-bezier(0.34,1.06,0.64,1)';
+        head.style.transform = t;
+      } else {
+        head.style.transition = '';
+      }
     }
   } catch (err) { /* stub environments */ }
   a.clearTimeout('idle-behavior');

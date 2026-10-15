@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.7.0-beta.3
+
+### SVG Layer Split (the motion-jank fix)
+
+* **The avatar no longer repaints its whole artwork every animation frame** — the single inline SVG has been split into 5 stacked, absolutely-positioned SVG layers sharing one identical coordinate system: a paint-once backdrop (gradient/clip definitions only), and 4 animated movers (body, head, eye assembly, LED matrices). Each mover is composited on its own GPU layer, so per-frame transform motion (sway, poses, bop, pupil, lids, LED pulse) no longer triggers main-thread repaints of the entire artwork. This was the measured root cause of tablet jank (100+ ms/frame on the Tab S6 Lite).
+* **Visually identical** — every layer shares the same viewBox, so all existing pixel positions, transform origins, and animation timings are unchanged. The eye's color changes (state colors, dance strobe, idle glitch) are now pre-painted color variants crossfaded with opacity — the same 0.8 s easing as before, but without paint transitions inside the animated layers.
+* **"Debug: DPR Compositing Fix" retired** — the workaround was falsified on the Tab S6 Lite field test, and the layer split replaces the single-SVG compositing path it targeted. The setting is accepted for backward compatibility but does nothing (the Performance HUD shows it as "retired (no-op)").
+* **Demo studio: Freeze for capture (F)** — a permanent fixture that tears down all motion and pauses the ambient sway, producing one deterministic static frame for pixel-diff comparisons between builds.
+
+### JS Motion Frame Cap (`fps_max`)
+
+* **New "Max Animation FPS (JS Motion)" option (default 60)** — the card's JavaScript-driven motion loops (the tap-bop spring, the idle glitch effect) previously ticked at the display's refresh rate. On a 240 Hz desktop monitor that is 4× the per-second work for zero perceptual gain at this card's slow, small-angle motion. The new cap gates those loops to at most `fps_max` updates per second (accepted values clamp to 30–240).
+* **Motion looks identical** — the spring integrator is time-based: it receives the real elapsed time per tick, so the trajectory is pixel-identical to the uncapped run. Only the number of updates drops, not the speed or smoothness of the motion. The ambient CSS sway (body sway, head sway) is untouched — it is compositor-driven and handled separately.
+* **Performance HUD sampler lightened** — the HUD's frame sampler still counts every display frame (so its FPS/jank/worst numbers keep measuring the true display rate), but its window bookkeeping now runs at most 30 times per second instead of every frame. The HUD's flags line now shows the resolved `fps_max` value.
+* **Why 60** — the target device (Tab S6 Lite 2024) has a 60 Hz panel; 60 is the right cap everywhere. Lower it to 30 on very weak hardware to save more CPU; raise it only if you have a specific reason.
+
 ## 5.7.0-beta.2
 
 ### Soft-Lock Blocker Fix + Heap Trend HUD

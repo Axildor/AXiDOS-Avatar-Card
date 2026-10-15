@@ -6,6 +6,12 @@
  * eye gradient / halo / LEDs / head pose for the target state and starts the
  * matching behavior engine.
  *
+ * 5.7.0-beta.3 layer split: #eye-center / #eye-halo fill writes are replaced
+ * by the variant-stack crossfade helpers (setEyeCenterColor /
+ * setEyeHaloFill) — concurrent same-frame opacity swaps, no fill transitions
+ * inside mover layers. The halo's master opacity (state brightness) is
+ * written on the #eye-halo GROUP; the variant circles only carry the fill.
+ *
  * Tracked resource name: 'respond-delay'.
  */
 
@@ -35,7 +41,6 @@ function resetAll(card) {
   a.el.eyeLayerRespond.style.opacity = '0';
   a.el.eyeLayerDance.style.opacity = '0';
   a.el.eyeCenter.style.transform = 'scale(1)';
-  a.el.eyeCenter.style.transition = 'fill 0.8s ease-in-out';
 }
 
 export function applyStateVisuals(card, state, bpm, mood) {
@@ -45,10 +50,10 @@ export function applyStateVisuals(card, state, bpm, mood) {
 
   if (state === 'idle') {
     a.el.eyeLayerIdle.style.opacity = '1';
-    a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.8s';
-    a.el.eyeHalo.setAttribute('fill', 'url(#haloGradIdle)');
+    a.el.eyeHalo.style.transition = 'opacity 0.8s';
+    a.setEyeHaloFill('url(#haloGradIdle)');
     a.el.eyeHalo.style.opacity = '0.05';
-    a.el.eyeCenter.setAttribute('fill', '#ffcc00');
+    a.setEyeCenterColor('#ffcc00');
     a.setHead(0, 0, 0, 1.0, 2.2);
     a.setLid(0, 1.2);
     a.setPupil(0, 0);
@@ -60,11 +65,11 @@ export function applyStateVisuals(card, state, bpm, mood) {
     startIdleCycle(card);
   } else if (state === 'dancing') {
     a.el.eyeLayerDance.style.opacity = '1';
-    a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.15s ease-out';
-    a.el.eyeHalo.setAttribute('fill', 'url(#haloGradDance)');
-    a.el.eyeCenter.setAttribute('fill', '#ffffff');
+    a.el.eyeHalo.style.transition = 'opacity 0.15s ease-out';
+    a.setEyeHaloFill('url(#haloGradDance)');
+    a.setEyeCenterColor('#ffffff');
     a.el.eyeCenter.style.transformOrigin = '130px 364px';
-    a.el.eyeCenter.style.transition = 'transform 0.1s ease-out, fill 0.8s ease-in-out';
+    a.el.eyeCenter.style.transition = 'transform 0.1s ease-out';
     a.setLEDs('#1DB954', '0.15');
     a.resetBodySwivel();
     // Optional dance-mode ring: re-render after resetAll() hid it. The ring
@@ -75,10 +80,10 @@ export function applyStateVisuals(card, state, bpm, mood) {
     startDanceCycle(card, bpm, mood);
   } else if (state === 'listening') {
     a.el.eyeLayerListen.style.opacity = '1';
-    a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.8s';
-    a.el.eyeHalo.setAttribute('fill', 'url(#haloGradListen)');
+    a.el.eyeHalo.style.transition = 'opacity 0.8s';
+    a.setEyeHaloFill('url(#haloGradListen)');
     a.el.eyeHalo.style.opacity = '0.05';
-    a.el.eyeCenter.setAttribute('fill', '#aaffff');
+    a.setEyeCenterColor('#aaffff');
     a.setHead(4, 0, -8, 1.06, 1.0);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
@@ -86,10 +91,10 @@ export function applyStateVisuals(card, state, bpm, mood) {
     a.setBodySwivel(-2, 1, 1.4);
   } else if (state === 'processing') {
     a.el.eyeLayerProcess.style.opacity = '1';
-    a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.8s';
-    a.el.eyeHalo.setAttribute('fill', 'url(#haloGradProcess)');
+    a.el.eyeHalo.style.transition = 'opacity 0.8s';
+    a.setEyeHaloFill('url(#haloGradProcess)');
     a.el.eyeHalo.style.opacity = '0.05';
-    a.el.eyeCenter.setAttribute('fill', '#ffddaa');
+    a.setEyeCenterColor('#ffddaa');
     a.setHead(-2, 0, 10, 0.96, 1.4);
     a.setBaseLid(0.65, 0.5);
     a.setLEDs('#ff6600', '1');
@@ -104,10 +109,10 @@ export function applyStateVisuals(card, state, bpm, mood) {
     dart();
   } else if (state === 'responding') {
     a.el.eyeLayerRespond.style.opacity = '1';
-    a.el.eyeHalo.style.transition = 'fill 0.8s ease-in-out, opacity 0.8s';
-    a.el.eyeHalo.setAttribute('fill', 'url(#haloGradRespond)');
+    a.el.eyeHalo.style.transition = 'opacity 0.8s';
+    a.setEyeHaloFill('url(#haloGradRespond)');
     a.el.eyeHalo.style.opacity = '0.05';
-    a.el.eyeCenter.setAttribute('fill', '#ffaaaa');
+    a.setEyeCenterColor('#ffaaaa');
     if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '1');
     a.setLEDs('#ff2200', '1');
     a.setBodySwivel(0, 1, 0.8);

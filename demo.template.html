@@ -228,7 +228,14 @@
     </div>
     <div class="btn-row">
       <button id="hide-btn">🫥 Clean mode (H)</button>
+      <button id="freeze-btn">🧊 Freeze for capture (F)</button>
     </div>
+    <p class="stage-hint" style="font-size:11px;color:var(--secondary-text-color);margin:0;">
+      Freeze = the A4 static-capture fixture: tears down all JS motion engines
+      and pauses the ambient sway keyframes across every layer, so a
+      static-frame pixel-diff vs another build is deterministic. Leave it in —
+      the next restructure needs it too.
+    </p>
 
     <h2>Configuration</h2>
     <div class="btn-row">
@@ -242,6 +249,7 @@
 
     <p class="kbd">
       Shortcuts: <code>1–5</code> states · <code>H</code> clean mode ·
+      <code>F</code> freeze for capture ·
       <code>C</code> config · <code>Space</code> tap-bop
     </p>
   </div>
@@ -302,9 +310,14 @@
       <small>Freezes body sway + head sway to isolate the baseline repaint load.</small>
     </div>
     <div class="switch-row">
-      <span>Debug: DPR Compositing Fix</span>
+      <span>Debug: DPR Compositing Fix (retired)</span>
       <input type="checkbox" id="cfg-dprfix">
-      <small>crbug 449095626 workaround: rescales the SVG so transform animations re-engage the compositor on DSF > 1. No visual change at DSF 1.</small>
+      <small>RETIRED no-op since 5.7.0-beta.3: the layer split replaced the single-SVG compositing path. Key kept for backward compatibility only.</small>
+    </div>
+    <div class="field">
+      <label for="cfg-fps-max">Max Animation FPS (JS Motion)</label>
+      <input type="number" id="cfg-fps-max" min="30" max="240" step="1" value="60">
+      <small>Caps the JS motion loops (bop spring, glitch) at this rate. 60 = default; motion looks identical, only the update rate drops.</small>
     </div>
 
     <details>
@@ -385,6 +398,7 @@
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
+    fps_max: 60,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -547,6 +561,36 @@
   hideBtn.addEventListener('click', toggleClean);
 
   // ============================================================
+  // A4 freeze fixture (permanent): static-capture mode for pixel-diff
+  // comparisons between builds. Tears down ALL JS motion engines (bop,
+  // dance, idle, talk, lid — stopAll clears every tracked timer/RAF) and
+  // pauses the ambient sway keyframes on every layer copy. The card renders
+  // one deterministic static frame. Unfreeze re-applies the current state.
+  // ============================================================
+  const freezeBtn = document.getElementById('freeze-btn');
+  let frozen = false;
+  function toggleFreeze() {
+    frozen = !frozen;
+    if (frozen) {
+      card._teardownAnimation();
+      card._setSwayPaused('paused');
+      freezeBtn.textContent = '▶ Unfreeze (F)';
+      freezeBtn.classList.add('active');
+    } else {
+      card._setSwayPaused('');
+      applyStateToCard();
+      freezeBtn.textContent = '🧊 Freeze for capture (F)';
+      freezeBtn.classList.remove('active');
+    }
+  }
+  freezeBtn.addEventListener('click', toggleFreeze);
+  function applyStateToCard() {
+    // Re-apply the currently selected state (mirrors the state buttons).
+    const active = document.querySelector('#state-buttons button.active');
+    if (active) setState(active.dataset.state);
+  }
+
+  // ============================================================
   // Card Config modal — mirrors the HA visual editor schema.
   // Every change goes through card.setConfig() so the production
   // sanitization/clamping path is exercised.
@@ -566,6 +610,7 @@
     $('cfg-perf').checked = currentConfig.debug_perf === true;
     $('cfg-lite').checked = currentConfig.debug_lite === true;
     $('cfg-dprfix').checked = currentConfig.debug_dprfix === true;
+    $('cfg-fps-max').value = currentConfig.fps_max ?? 60;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -597,6 +642,7 @@
       debug_perf: $('cfg-perf').checked,
       debug_lite: $('cfg-lite').checked,
       debug_dprfix: $('cfg-dprfix').checked,
+      fps_max: parseInt($('cfg-fps-max').value, 10) || 60,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),
@@ -632,6 +678,7 @@
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (KEY_STATES[e.key]) setState(KEY_STATES[e.key]);
     else if (e.key === 'h' || e.key === 'H') toggleClean();
+    else if (e.key === 'f' || e.key === 'F') toggleFreeze();
     else if (e.key === 'c' || e.key === 'C') (modal.classList.contains('open') ? closeConfig() : openConfig());
     else if (e.key === 'Escape') closeConfig();
     else if (e.key === ' ') {

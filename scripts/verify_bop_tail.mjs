@@ -59,10 +59,14 @@ function makeEl() {
 
 function makeAnimator() {
   const el = {};
-  for (const k of ['svg', 'head', 'headBop', 'torsoSwivel', 'hitbox',
+  for (const k of ['svg', 'torsoSwivel', 'hitbox',
     'eyeHalo', 'eyeCenter', 'pupil', 'eyeball', 'bellows', 'lidTop', 'lidBot', 'dangerRing']) {
     el[k] = makeEl();
   }
+  // Layer split (5.7.0-beta.3): #axidos-head / #head-bop are 2-copy lists
+  // (head layer + eye mirror) — the stub mirrors the production shape.
+  el.head = [makeEl()];
+  el.headBop = [makeEl()];
   el.ledMatrices = [];
 
   const a = {
@@ -83,13 +87,15 @@ function makeAnimator() {
     setLid() {}, setBaseLid(v) { this.currentBaseLid = v; },
     setPupil() {}, setBellows(p, d) { this._calls.setBellows.push([p, d]); },
     setLEDs(c, o) { this.currentLedColor = c; this.currentLedOpacity = o; this._calls.setLEDs.push([c, o]); },
+    // Layer-split API (5.7.0-beta.3): variant crossfades are no-ops here.
+    setEyeCenterColor() {}, setEyeHaloFill() {},
     setLedVars(c, o) { this._calls.setLedVars = this._calls.setLedVars || []; this._calls.setLedVars.push([c, o]); },
     freezeHeadMotion() { this._calls.freezeHeadMotion++; },
     resetBopLayer() {
       this._calls.resetBopLayer++;
-      if (this.el.headBop) {
-        this.el.headBop.style.transition = 'transform 0.4s ease-out';
-        this.el.headBop.style.transform = 'translate3d(0,0,0) rotate(0deg) scale(1)';
+      for (const bop of this.el.headBop) {
+        bop.style.transition = 'transform 0.4s ease-out';
+        bop.style.transform = 'translate3d(0,0,0) rotate(0deg) scale(1)';
       }
     },
     stopAll() {
@@ -130,8 +136,8 @@ function pumpBop(card, maxFrames = 2000) {
     trace.push({
       now,
       pos: spring ? spring.position : 0,
-      headTransform: a.el.head.style.transform || '',
-      bopTransform: a.el.headBop.style.transform || '',
+      headTransform: a.el.head[0].style.transform || '',
+      bopTransform: a.el.headBop[0].style.transform || '',
       bopping: card._bopping,
       idleResumed: a._timers.has('idle-behavior'),
     });
@@ -340,8 +346,8 @@ console.log('\n[13] No-snap resume: head un-frozen with transition on meld');
   // inline with transition: none. Stub getComputedStyle to return a pose.
   const savedGCS = globalThis.getComputedStyle;
   globalThis.getComputedStyle = () => ({ transform: 'matrix(1, 0, 0, 1, 3, -2)' });
-  a.el.head.style.transform = 'matrix(1, 0, 0, 1, 3, -2)';
-  a.el.head.style.transition = 'none';
+  a.el.head[0].style.transform = 'matrix(1, 0, 0, 1, 3, -2)';
+  a.el.head[0].style.transition = 'none';
 
   bopHead(card);
   pumpBop(card);
@@ -349,8 +355,8 @@ console.log('\n[13] No-snap resume: head un-frozen with transition on meld');
   // After the meld, startIdleHeadPoses must have restored a transition on the
   // head (un-freezing it) — the head must NOT be left with transition: none.
   check('head transition restored after meld (not left frozen)',
-    a.el.head.style.transition !== 'none',
-    `transition=${JSON.stringify(a.el.head.style.transition)}`);
+    a.el.head[0].style.transition !== 'none',
+    `transition=${JSON.stringify(a.el.head[0].style.transition)}`);
   check('idle-behavior re-set after meld', a._timers.has('idle-behavior'));
   globalThis.getComputedStyle = savedGCS;
   stopBop(card);

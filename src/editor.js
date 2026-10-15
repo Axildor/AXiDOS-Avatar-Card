@@ -83,6 +83,14 @@ export function buildEditorForm() {
         default: false,
         selector: { boolean: {} },
       },
+      // ── JS Motion Frame Cap (5.7.0-beta.3) ──
+      {
+        name: 'fps_max',
+        default: 60,
+        selector: {
+          number: { min: 30, max: 240, step: 1, mode: 'box' },
+        },
+      },
       // ── Progress Ring section ──
       {
         type: 'expandable',
@@ -215,6 +223,7 @@ export function buildEditorForm() {
         debug_perf: 'Performance HUD',
         debug_lite: 'Debug: Lite Mode (Freeze Ambient)',
         debug_dprfix: 'Debug: DPR Compositing Fix',
+        fps_max: 'Max Animation FPS (JS Motion)',
         tap_enabled: 'Enable Tap to Bop',
         tap_action: 'Tap Action',
         tap_speed: 'Animation Speed',
@@ -247,7 +256,8 @@ export function buildEditorForm() {
         mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
         debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
         debug_lite: 'Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only — leave off for normal use.',
-        debug_dprfix: 'Workaround for Chromium bug 449095626: rescales the SVG to re-engage the compositor at device scale factor > 1. FALSIFIED on the Tab S6 Lite field test (no change vs baseline) — kept for further testing on other devices. No visual change at scale factor 1. Diagnostic — leave off for normal use.',
+        debug_dprfix: 'RETIRED (no-op) since 5.7.0-beta.3: the layer split replaced the single-SVG compositing path this workaround targeted, and it was falsified on the Tab S6 Lite field test. The key is accepted for backward compatibility but does nothing.',
+        fps_max: 'Caps the JavaScript-driven motion loops (tap bop spring, glitch effect) at this many updates per second. 60 is right for almost every device; lower to 30 to save more CPU on very weak hardware. Motion looks identical — only the update rate changes. Does not affect the ambient CSS sway.',
         tap_enabled: 'Plays the bop animation when the card is tapped.',
         tap_action: 'Optional Home Assistant action fired on tap.',
         tap_speed: '0.1 = slow, 0.5 = normal, 2.0 = fast.',

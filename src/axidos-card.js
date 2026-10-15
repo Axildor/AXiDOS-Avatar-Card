@@ -9,7 +9,7 @@
 import { sanitizeConfig, getStubConfig } from './config.js';
 import { buildEditorForm } from './editor.js';
 import { applyHassUpdate } from './hass-update.js';
-import { buildTemplate, dprFixStyles } from './template.js';
+import { buildTemplate, auditCrossSvgDefs } from './template.js';
 import { AxidosAnimator } from './animator.js';
 import { applyState, updateProgressRing } from './states.js';
 import { bopHead } from './behaviors/bop.js';
@@ -113,16 +113,29 @@ export class AxidosCard extends HTMLElement {
       if (!visible && !this._offscreen) {
         this._offscreen = true;
         this._teardownAnimation();
-        this.animator.el.svg.style.animationPlayState = 'paused';
-        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = 'paused'; });
+        this._setSwayPaused('paused');
       } else if (visible && this._offscreen) {
         this._offscreen = false;
-        this.animator.el.svg.style.animationPlayState = '';
-        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = ''; });
+        this._setSwayPaused('');
         applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     }, { threshold: 0.05 });
     this._intersectionObserver.observe(this);
+  }
+
+  /**
+   * Pause/resume the ambient sway keyframes across ALL mover layers (layer
+   * split): the pivot copies live in every layer, and pausing only the first
+   * would desync the stack. Also the A4 freeze fixture: the pixel-diff
+   * harness calls this with 'paused' (plus _teardownAnimation) to freeze all
+   * motion for static-frame captures.
+   * @param {string} state - 'paused' or ''
+   */
+  _setSwayPaused(state) {
+    if (!this.animator) return;
+    for (const svg of this.animator.el.svgs) {
+      svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = state; });
+    }
   }
 
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
@@ -190,18 +203,33 @@ export class AxidosCard extends HTMLElement {
   }
 
   setupDOM() {
-    this.shadowRoot.innerHTML = buildTemplate(this.config);
-    // DPR compositing workaround (5.7.0-beta.1, crbug 449095626): when
-    // debug_dprfix is on, rescale #axidos-svg so SVG transform animations
-    // re-engage the compositor path on DSF > 1 devices. dprFixStyles
-    // returns null at DSF == 1 (structural no-op — nothing is injected).
-    // Applied here (setupDOM) so an editor toggle rebuilds cleanly; DPR is
-    // captured at setup time — dynamic re-capture (ResizeObserver +
-    // visualViewport listener) is hardening toward 5.7.0 stable.
+    const tpl = buildTemplate(this.config);
+    this.shadowRoot.innerHTML = tpl;
+    // A3c defs audit: every url(#…) reference in the mover layers must
+    // resolve inside the backdrop defs host (cross-SVG references resolve
+    // document-wide for inline SVGs — PoC-validated). If the audit ever
+    // trips (a browser build resolving per-SVG), the per-layer defs
+    // duplication fallback injects a defs copy into every mover layer
+    // AUTOMATICALLY rather than failing silently.
+    const missing = auditCrossSvgDefs(tpl);
+    if (missing.length > 0) {
+      console.warn('axidos-card: cross-SVG defs unresolved, injecting per-layer copies:', missing);
+      const backdrop = this.shadowRoot.getElementById('axidos-svg-backdrop');
+      const defs = backdrop ? backdrop.querySelector('defs') : null;
+      if (defs) {
+        for (const svg of this.shadowRoot.querySelectorAll('svg.axidos-layer:not(#axidos-svg-backdrop)')) {
+          svg.insertBefore(defs.cloneNode(true), svg.firstChild);
+        }
+      }
+    }
+    // dprfix RETIRED (5.7.0-beta.3, A2): the crbug 449095626 scale wrapper
+    // was falsified on the Tab S6 Lite field test and the layer split makes
+    // it meaningless (5 stacked layers, not one scalable SVG). The config
+    // key stays accepted for backward compatibility but is a no-op; the
+    // retirement notice fires once per setup so a stale config is visible
+    // in the console.
     if (this.config.debug_dprfix === true) {
-      const svg = this.shadowRoot.getElementById('axidos-svg');
-      const css = dprFixStyles(typeof devicePixelRatio === 'number' ? devicePixelRatio : 1);
-      if (svg && css) svg.style.cssText = css;
+      console.info('axidos-card: debug_dprfix is retired (no-op) since 5.7.0-beta.3 — the layer split replaced the single-SVG compositing path.');
     }
     // Perf HUD (5.8.0): opt-in on-card diagnostics for devices without
     // developer tools. Destroyed and rebuilt with the DOM so a config change
@@ -213,7 +241,10 @@ export class AxidosCard extends HTMLElement {
   }
 
   initAxidos() {
-    this.animator = new AxidosAnimator(this.shadowRoot);
+    // fps_max (5.7.0-beta.3): the JS motion frame cap — requestRaf gates all
+    // tracked motion loops to this rate (default 60, clamped 30–240 in
+    // sanitizeConfig). Springs are dt-based, so visuals are unchanged.
+    this.animator = new AxidosAnimator(this.shadowRoot, this.config?.fps_max ?? 60);
     this._hitbox = this.animator.el.hitbox;
 
     // ---- Tap handler: bop + official native HA Lovelace action dispatch ----
@@ -259,11 +290,9 @@ export class AxidosCard extends HTMLElement {
       if (!this.isConnected) return;
       if (document.hidden) {
         this._teardownAnimation();
-        this.animator.el.svg.style.animationPlayState = 'paused';
-        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = 'paused'; });
+        this._setSwayPaused('paused');
       } else {
-        this.animator.el.svg.style.animationPlayState = '';
-        this.animator.el.svg.querySelectorAll('#body-pivot, #head-sway-pivot').forEach((e) => { e.style.animationPlayState = ''; });
+        this._setSwayPaused('');
         applyState(this, this._state, this._currentBpm || 120, this._currentMood);
       }
     };

@@ -124,6 +124,8 @@ function mockAnimator() {
     setBaseLid(amount) { a.baseLidCalls.push(amount); },
     setPupil() {}, setBellows() {},
     setLEDs() {}, setLedVars() {}, freezeHeadMotion() {}, resetBopLayer() {},
+    // Layer-split API (5.7.0-beta.3): variant crossfades are no-ops here.
+    setEyeCenterColor() {}, setEyeHaloFill() {},
   };
   return a;
 }

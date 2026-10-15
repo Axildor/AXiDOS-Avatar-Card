@@ -30,6 +30,7 @@ export function getStubConfig() {
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
+    fps_max: 60,
     tap_enabled: true,
     tap_speed: 0.5,
     tap_bounces: 5,
@@ -93,6 +94,14 @@ export function sanitizeConfig(config) {
   // so the compositor path re-engages. Default OFF — zero behavior change;
   // a visual no-op at DSF == 1 by construction (dprFixStyles returns null).
   c.debug_dprfix = c.debug_dprfix === true;
+  // JS motion frame cap (5.7.0-beta.3): the card's JS motion loops (bop
+  // spring, idle glitch) tick at display rate — 4x per-second work for zero
+  // perceptual gain on a 240 Hz desktop at this card's slow, small-angle
+  // motion amplitude. requestRaf gates callbacks to this rate (springs are
+  // dt-based integrators — visuals stay pixel-identical, only tick COUNT
+  // drops). Default 60 (the panel rate of the target device); accepted
+  // values clamp to 30–240.
+  c.fps_max = clampNum(c.fps_max, 60, 30, 240);
   c.tap_speed = clampNum(c.tap_speed, 0.5, 0.1, 2.0);
   c.tap_intensity = clampNum(c.tap_intensity, 1.0, 0.5, 2);
   c.tap_bounces = Math.round(clampNum(c.tap_bounces, 5, 1, 20));
