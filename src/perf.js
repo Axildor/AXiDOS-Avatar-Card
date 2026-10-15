@@ -43,6 +43,11 @@ import { CARD_VERSION } from './version.js';
 const JANK_THRESHOLD_MS = 50;
 const HUD_REFRESH_MS = 500;
 const BEAT_WINDOW = 32;
+// Heap-slope window (5.7.0-beta.2, HUD v2.1): 120 samples at the 500ms HUD
+// refresh = a rolling 60s window. The slope distinguishes leak-shaped growth
+// (steady positive MB/min) from a GC seesaw at a high plateau (slope ≈ 0,
+// sawtooth visible in the raw value) in one glance.
+const HEAP_WINDOW = 120;
 
 export class PerfMonitor {
   /**
@@ -60,6 +65,7 @@ export class PerfMonitor {
     this._jankCount = 0;
     this._worstFrame = 0;
     this._beatLates = [];   // rolling window of beat lateness (ms)
+    this._heapSamples = []; // rolling (t, usedJSHeapSize) pairs for the slope
     this._hudTimer = null;
 
     // HUD overlay: absolutely positioned in the card's top-left corner,
@@ -122,6 +128,28 @@ export class PerfMonitor {
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
   }
 
+  /**
+   * Δheap/min over the rolling 60s window (HUD v2.1): least-squares slope of
+   * usedJSHeapSize vs time, in MB/min. Returns null when performance.memory
+   * is unavailable or fewer than 2 samples exist (slope undefined).
+   */
+  _heapSlope() {
+    if (typeof performance === 'undefined' || !performance.memory
+      || typeof performance.memory.usedJSHeapSize !== 'number') return null;
+    const s = this._heapSamples;
+    if (s.length < 2) return null;
+    // Least squares over (x = seconds, y = MB): slope = cov(x,y)/var(x).
+    const n = s.length;
+    const xs = s.map((p) => p.t / 1000);
+    const ys = s.map((p) => p.heap / 1048576);
+    const mx = xs.reduce((a, v) => a + v, 0) / n;
+    const my = ys.reduce((a, v) => a + v, 0) / n;
+    let cov = 0; let varx = 0;
+    for (let i = 0; i < n; i++) { cov += (xs[i] - mx) * (ys[i] - my); varx += (xs[i] - mx) ** 2; }
+    if (varx === 0) return null;
+    return (cov / varx) * 60; // seconds → minutes
+  }
+
   /** Resolved debug-flag state for the HUD flags line. */
   _flagsLine() {
     const cfg = this._config || {};
@@ -152,13 +180,22 @@ export class PerfMonitor {
     // Live DPR per refresh (not captured once) + guarded Chromium heap.
     const dpr = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio)
       ? devicePixelRatio : 1;
-    const mem = (typeof performance !== 'undefined' && performance.memory
-      && typeof performance.memory.usedJSHeapSize === 'number')
+    const heapAvail = typeof performance !== 'undefined' && performance.memory
+      && typeof performance.memory.usedJSHeapSize === 'number';
+    // Sample the heap at every HUD refresh (500ms) for the slope window.
+    if (heapAvail) {
+      this._heapSamples.push({ t: performance.now(), heap: performance.memory.usedJSHeapSize });
+      if (this._heapSamples.length > HEAP_WINDOW) this._heapSamples.shift();
+    }
+    const mem = heapAvail
       ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB`
       : 'n/a';
+    // Δheap/min: leak-shaped growth (steady +) vs GC seesaw at a plateau (≈0).
+    const slope = this._heapSlope();
+    const slopeTxt = slope === null ? '' : ` (${slope >= 0 ? '+' : ''}${slope.toFixed(1)}/min)`;
     this._hud.textContent =
       `build: ${CARD_VERSION}\n` +
-      `dpr: ${dpr}  heap: ${mem}\n` +
+      `dpr: ${dpr}  heap: ${mem}${slopeTxt}\n` +
       `${this._flagsLine()}\n` +
       `fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms\n` +
       `${beatLine}`;

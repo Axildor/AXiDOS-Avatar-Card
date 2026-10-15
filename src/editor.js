@@ -247,7 +247,7 @@ export function buildEditorForm() {
         mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
         debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
         debug_lite: 'Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only — leave off for normal use.',
-        debug_dprfix: 'Workaround for Chromium bug 449095626: SVG transform animations are not composited when device scale factor > 1 (they repaint on the main thread). Rescales the SVG to re-engage the compositor. No visual change at scale factor 1. Diagnostic — leave off for normal use.',
+        debug_dprfix: 'Workaround for Chromium bug 449095626: rescales the SVG to re-engage the compositor at device scale factor > 1. FALSIFIED on the Tab S6 Lite field test (no change vs baseline) — kept for further testing on other devices. No visual change at scale factor 1. Diagnostic — leave off for normal use.',
         tap_enabled: 'Plays the bop animation when the card is tapped.',
         tap_action: 'Optional Home Assistant action fired on tap.',
         tap_speed: '0.1 = slow, 0.5 = normal, 2.0 = fast.',

@@ -21,7 +21,14 @@ export function buildTemplate(config) {
   // is emitted ONLY when the flag is on, so the default template carries
   // no trace of the probe path.
   const lite = config.debug_lite === true;
-  const liteClass = lite ? ' debug-lite' : '';
+  // 5.7.0-beta.2 blocker fix: this MUST be a class ATTRIBUTE, not part of the
+  // id. beta.1 interpolated it as <div id="scene debug-lite"> — the id became
+  // the literal string "scene debug-lite", which matches no #scene CSS rule,
+  // so #scene lost position: relative and #hitbox's inset: 0 fell back to the
+  // viewport (full-dashboard click interception = the soft-lock). The freeze
+  // rules (.debug-lite #body-pivot …) also matched nothing, so beta.1's lite
+  // mode was silently a no-op on device.
+  const liteClass = lite ? ' class="debug-lite"' : '';
   // The #eye-halo.breathing selector is future-proofing: no JS currently
   // applies the class, but freezing it here keeps lite mode complete if
   // breathing is ever wired up.
@@ -102,7 +109,7 @@ ${liteCss}
         transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
       }
     </style>
-    <div id="scene${liteClass}">
+    <div id="scene"${liteClass}>
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
       <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
         <defs>
@@ -275,6 +282,13 @@ ${liteCss}
 
 /**
  * dprFixStyles(dpr) — crbug 449095626 workaround (5.7.0-beta.1).
+ *
+ * ⚠️ FALSIFIED ON DEVICE (5.7.0-beta.1 field test, Tab S6 Lite 2024,
+ * WebView 153.0.8010.57, DPR 2): dprfix on → NO change vs baseline
+ * (45 fps during movement, stalls persist). The scale(dpr)+compensate
+ * workaround does not transfer to this build. KEPT fully functional
+ * (default OFF) for further testing — it is structurally inert at DSF 1
+ * and cannot contaminate other probes.
  *
  * Chromium does not composite SVG animations driven by CSS transforms when
  * the device scale factor (DPR) > 1 — they animate on the main thread and

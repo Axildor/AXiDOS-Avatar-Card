@@ -26,6 +26,14 @@
  *     freeze rules target the sway pivots, #scene keeps position: relative
  *     (the containing block the dprfix pin depends on), HUD echoes the
  *     build version + resolved flags line.
+ *  9. 5.7.0-beta.2 blocker fix: the debug-lite class must be a class
+ *     ATTRIBUTE on #scene, never part of the id (beta.1 emitted
+ *     <div id="scene debug-lite">, which matched no #scene CSS rule —
+ *     #scene lost position: relative and #hitbox's inset: 0 fell back to
+ *     the viewport = full-dashboard click interception). Asserts the exact
+ *     id token + hitbox containment under EVERY flag combination.
+ * 10. 5.7.0-beta.2 HUD v2.1: Δheap/min slope — least-squares over a
+ *     rolling 60s window, rendered on the heap line.
  */
 
 import { sanitizeConfig } from '../src/config.js';
@@ -355,9 +363,11 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
   const tOff = buildTemplate({ zoom: 85 });
   assert(!tOff.includes('debug-lite'), 'debug_lite off → no debug-lite class in template');
   assert(!tOff.includes('animation: none'), 'debug_lite off → no freeze rules in template');
-  // debug_lite ON: class on #scene + freeze rules for both sway pivots.
+  // debug_lite ON: class ATTRIBUTE on #scene + freeze rules for both sway
+  // pivots. (5.7.0-beta.2 fix: beta.1 emitted <div id="scene debug-lite"> —
+  // the class was interpolated INTO the id, which broke every #scene rule.)
   const tOn = buildTemplate({ zoom: 85, debug_lite: true });
-  assert(tOn.includes('<div id="scene debug-lite">'), 'debug_lite on → debug-lite class on #scene');
+  assert(tOn.includes('<div id="scene" class="debug-lite">'), 'debug_lite on → debug-lite as a class ATTRIBUTE on #scene (id stays "scene")');
   assert(tOn.includes('.debug-lite #body-pivot') && tOn.includes('.debug-lite #head-sway-pivot'),
     'debug_lite on → freeze rules target both sway pivots');
   assert(tOn.includes('.debug-lite #eye-halo.breathing'), 'debug_lite on → breathing selector frozen (future-proofing)');
@@ -388,7 +398,7 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
     mon._renderHud();
     const txt = mon._hud.textContent;
     assert(txt.includes(`build: ${CARD_VERSION}`), `HUD echoes the build version (${CARD_VERSION})`);
-    assert(CARD_VERSION === '5.7.0-beta.1', `version.js is the beta build (${CARD_VERSION})`);
+    assert(CARD_VERSION === '5.7.0-beta.2', `version.js is the beta build (${CARD_VERSION})`);
     assert(/dpr: \d/.test(txt), 'HUD shows live dpr');
     assert(txt.includes('flags: perf on · lite on · dprfix: on'), 'HUD flags line shows resolved flags');
     assert(txt.includes('heap:'), 'HUD shows heap line (n/a or MB)');
@@ -403,6 +413,121 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
     mon2.destroy();
     delete globalThis.devicePixelRatio;
   } finally {
+    if (realCreate) globalThis.document.createElement = realCreate;
+    else delete globalThis.document;
+    globalThis.requestAnimationFrame = realRaf;
+    globalThis.cancelAnimationFrame = realCaf;
+  }
+}
+
+// ============================================================
+console.log('\n== 9. 5.7.0-beta.2 blocker: #scene id token + hitbox containment under ALL flag combos ==');
+{
+  // The soft-lock: with debug_lite on, beta.1 rendered <div id="scene
+  // debug-lite"> — the id no longer matched #scene CSS, position: relative
+  // dropped, and #hitbox (position: absolute; inset: 0; z-index: 100) fell
+  // back to the viewport, intercepting clicks across the whole dashboard.
+  // These checks pin the invariant under every flag combination.
+  const combos = [
+    {},
+    { debug_lite: true },
+    { debug_perf: true },
+    { debug_dprfix: true },
+    { debug_lite: true, debug_perf: true },
+    { debug_lite: true, debug_dprfix: true },
+    { debug_perf: true, debug_dprfix: true },
+    { debug_lite: true, debug_perf: true, debug_dprfix: true },
+  ];
+  for (const cfg of combos) {
+    const t = buildTemplate({ zoom: 85, ...cfg });
+    const label = Object.keys(cfg).length ? Object.keys(cfg).join('+') : 'defaults';
+    // The id attribute must be EXACTLY "scene" — a single token, no class
+    // text glued onto it (the class lives in its own attribute).
+    assert(t.includes('<div id="scene"'), `[${label}] #scene id is the exact token "scene"`);
+    assert(!t.includes('id="scene '), `[${label}] no class text glued into the #scene id`);
+    // Structural containment: #hitbox opens after #scene and the scene div
+    // closes after the SVG — the hitbox is a child of #scene, so its
+    // inset: 0 resolves against #scene's position: relative box.
+    const idxScene = t.indexOf('<div id="scene"');
+    const idxHitbox = t.indexOf('id="hitbox"');
+    const idxSvgClose = t.indexOf('</svg>');
+    const idxSceneClose = t.lastIndexOf('</div>');
+    assert(idxScene !== -1 && idxHitbox > idxScene && idxSvgClose > idxHitbox && idxSceneClose > idxSvgClose,
+      `[${label}] #hitbox is nested inside #scene (containing block for inset: 0)`);
+    // The containing block the hitbox (and the dprfix pin) depend on.
+    assert(t.includes('#scene { position: relative;'), `[${label}] #scene keeps position: relative`);
+  }
+}
+
+// ============================================================
+console.log('\n== 10. 5.7.0-beta.2 HUD v2.1: Δheap/min slope ==');
+{
+  const hudEl = {
+    style: {}, attrs: {}, _text: '',
+    set textContent(v) { this._text = v; },
+    get textContent() { return this._text; },
+    setAttribute(k, v) { this.attrs[k] = v; },
+    setAttributeNS() {},
+    className: '',
+    parentNode: { removeChild() {} },
+  };
+  const shadow = { _children: [], appendChild(c) { this._children.push(c); return c; } };
+  const realCreate = globalThis.document?.createElement?.bind(globalThis.document);
+  globalThis.document = { createElement: () => hudEl };
+  const realRaf = globalThis.requestAnimationFrame;
+  const realCaf = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = () => 0;
+  globalThis.cancelAnimationFrame = () => {};
+  // Stub performance.memory with a controlled ramp: +5 MB per 500ms sample
+  // → +10 MB/min expected slope. Stub performance.now to drive sample times.
+  const realNow = performance.now.bind(performance);
+  const realMem = performance.memory;
+  let fakeT = 0;
+  performance.now = () => fakeT;
+  const MB = 1048576;
+  performance.memory = { usedJSHeapSize: 200 * MB };
+  try {
+    const mon = new PerfMonitor(shadow, { debug_perf: true });
+    // < 2 samples → slope undefined (no readout yet).
+    mon._renderHud();
+    assert(mon._heapSlope() === null, 'slope undefined with a single sample');
+    assert(!mon._hud.textContent.includes('/min)'), 'no slope readout with a single sample');
+    // Leak ramp: 5 samples × 500ms × +0.5 MB → +60 MB/min (1 MB/s).
+    for (let i = 1; i <= 4; i++) {
+      fakeT += 500;
+      performance.memory.usedJSHeapSize += 0.5 * MB;
+      mon._renderHud();
+    }
+    const slope = mon._heapSlope();
+    assert(slope !== null && Math.abs(slope - 60) < 0.01, `leak ramp → +60 MB/min (got ${slope?.toFixed(2)})`);
+    assert(mon._hud.textContent.includes('heap: 202.0 MB (+60.0/min)'),
+      `HUD renders the slope readout (${mon._hud.textContent.split('\n')[1]})`);
+    // GC seesaw → slope ≈ 0. Reset the buffer first so the ramp samples
+    // don't skew the plateau slope. The sawtooth must be least-squares
+    // SYMMETRIC (odd count, same value first and last) or the peak/x
+    // correlation itself produces a spurious slope.
+    mon._heapSamples = [];
+    for (let i = 0; i < 5; i++) {
+      fakeT += 500;
+      performance.memory.usedJSHeapSize += (i % 2 === 0 ? 2 : -2) * MB; // +2,-2,+2,-2,+2
+      mon._renderHud();
+    }
+    const flat = mon._heapSlope();
+    assert(Math.abs(flat) < 0.001, `symmetric sawtooth → slope ≈ 0 (got ${flat?.toFixed(3)} MB/min)`);
+    // Window cap: 120 samples max.
+    for (let i = 0; i < 200; i++) { fakeT += 500; mon._renderHud(); }
+    assert(mon._heapSamples.length === 120, `heap window capped at 120 samples (60s) (got ${mon._heapSamples.length})`);
+    mon.destroy();
+    // No performance.memory → slope null, heap n/a (non-Chromium guard).
+    delete performance.memory;
+    const mon2 = new PerfMonitor(shadow, { debug_perf: true });
+    mon2._renderHud();
+    assert(mon2._heapSlope() === null, 'slope null without performance.memory');
+    assert(mon2._hud.textContent.includes('heap: n/a'), 'heap reads n/a without performance.memory');
+    mon2.destroy();
+  } finally {
+    if (realMem) performance.memory = realMem;
+    performance.now = realNow;
     if (realCreate) globalThis.document.createElement = realCreate;
     else delete globalThis.document;
     globalThis.requestAnimationFrame = realRaf;

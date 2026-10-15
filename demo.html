@@ -664,7 +664,7 @@ function buildEditorForm() {
         mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
         debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
         debug_lite: "Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only \u2014 leave off for normal use.",
-        debug_dprfix: "Workaround for Chromium bug 449095626: SVG transform animations are not composited when device scale factor > 1 (they repaint on the main thread). Rescales the SVG to re-engage the compositor. No visual change at scale factor 1. Diagnostic \u2014 leave off for normal use.",
+        debug_dprfix: "Workaround for Chromium bug 449095626: rescales the SVG to re-engage the compositor at device scale factor > 1. FALSIFIED on the Tab S6 Lite field test (no change vs baseline) \u2014 kept for further testing on other devices. No visual change at scale factor 1. Diagnostic \u2014 leave off for normal use.",
         tap_enabled: "Plays the bop animation when the card is tapped.",
         tap_action: "Optional Home Assistant action fired on tap.",
         tap_speed: "0.1 = slow, 0.5 = normal, 2.0 = fast.",
@@ -2233,7 +2233,7 @@ function buildTemplate(config) {
   const height = 320 * scale;
   const bgStyle = config.transparent_bg ? "background: transparent; box-shadow: none; border: none;" : "background: var(--ha-card-background, var(--card-background-color, #1c1c1c));";
   const lite = config.debug_lite === true;
-  const liteClass = lite ? " debug-lite" : "";
+  const liteClass = lite ? ' class="debug-lite"' : "";
   const liteCss = lite ? `
       /* ---- debug_lite (5.7.0-beta.1): ambient motion frozen ---- */
       .debug-lite #body-pivot,
@@ -2310,7 +2310,7 @@ ${liteCss}
         transition: stroke-dasharray 0.6s ease-in-out, stroke 0.6s ease-in-out, opacity 0.8s ease-in-out;
       }
     </style>
-    <div id="scene${liteClass}">
+    <div id="scene"${liteClass}>
       <div id="hitbox" role="button" tabindex="0" aria-label="AXiDOS tap action"></div>
       <svg id="axidos-svg" viewBox="0 116 280 320" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
         <defs>
@@ -2687,12 +2687,13 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.7.0-beta.1";
+var CARD_VERSION = "5.7.0-beta.2";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;
 var HUD_REFRESH_MS = 500;
 var BEAT_WINDOW = 32;
+var HEAP_WINDOW = 120;
 var PerfMonitor = class {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root (HUD appended here)
@@ -2709,6 +2710,7 @@ var PerfMonitor = class {
     this._jankCount = 0;
     this._worstFrame = 0;
     this._beatLates = [];
+    this._heapSamples = [];
     this._hudTimer = null;
     const hud = document.createElement("div");
     hud.className = "axidos-perf-hud";
@@ -2760,6 +2762,29 @@ var PerfMonitor = class {
     this._rafId = requestAnimationFrame(sample);
     this._hudTimer = setInterval(() => this._renderHud(), HUD_REFRESH_MS);
   }
+  /**
+   * Δheap/min over the rolling 60s window (HUD v2.1): least-squares slope of
+   * usedJSHeapSize vs time, in MB/min. Returns null when performance.memory
+   * is unavailable or fewer than 2 samples exist (slope undefined).
+   */
+  _heapSlope() {
+    if (typeof performance === "undefined" || !performance.memory || typeof performance.memory.usedJSHeapSize !== "number") return null;
+    const s = this._heapSamples;
+    if (s.length < 2) return null;
+    const n = s.length;
+    const xs = s.map((p) => p.t / 1e3);
+    const ys = s.map((p) => p.heap / 1048576);
+    const mx = xs.reduce((a, v) => a + v, 0) / n;
+    const my = ys.reduce((a, v) => a + v, 0) / n;
+    let cov = 0;
+    let varx = 0;
+    for (let i = 0; i < n; i++) {
+      cov += (xs[i] - mx) * (ys[i] - my);
+      varx += (xs[i] - mx) ** 2;
+    }
+    if (varx === 0) return null;
+    return cov / varx * 60;
+  }
   /** Resolved debug-flag state for the HUD flags line. */
   _flagsLine() {
     const cfg = this._config || {};
@@ -2781,9 +2806,16 @@ var PerfMonitor = class {
       beatLine = `beat late: ${min}/${avg}/${max} ms`;
     }
     const dpr = typeof devicePixelRatio === "number" && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
-    const mem = typeof performance !== "undefined" && performance.memory && typeof performance.memory.usedJSHeapSize === "number" ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB` : "n/a";
+    const heapAvail = typeof performance !== "undefined" && performance.memory && typeof performance.memory.usedJSHeapSize === "number";
+    if (heapAvail) {
+      this._heapSamples.push({ t: performance.now(), heap: performance.memory.usedJSHeapSize });
+      if (this._heapSamples.length > HEAP_WINDOW) this._heapSamples.shift();
+    }
+    const mem = heapAvail ? `${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)} MB` : "n/a";
+    const slope = this._heapSlope();
+    const slopeTxt = slope === null ? "" : ` (${slope >= 0 ? "+" : ""}${slope.toFixed(1)}/min)`;
     this._hud.textContent = `build: ${CARD_VERSION}
-dpr: ${dpr}  heap: ${mem}
+dpr: ${dpr}  heap: ${mem}${slopeTxt}
 ${this._flagsLine()}
 fps: ${this._fps}  jank: ${this._jankCount}  worst: ${Math.round(this._worstFrame)}ms
 ${beatLine}`;

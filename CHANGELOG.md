@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.7.0-beta.2
+
+### Soft-Lock Blocker Fix + Heap Trend HUD
+
+* **Critical fix: tap hitbox no longer swallows the whole dashboard** — in beta.1, enabling "Tap to Bop" together with "Debug: Lite Mode" made the tap hitbox cover the entire screen (the card editor became unreachable). Root cause: the debug-lite class was accidentally written into the element's `id` attribute, which broke the scene's positioning CSS and let the hitbox fall back to full-viewport size. The class is now a proper `class` attribute; the hitbox is again bounded by the card. **Note: beta.1's Lite Mode was silently a no-op on device** (the freeze rules matched nothing), so any lite-mode A/B numbers from beta.1 are actually baseline numbers.
+* **Performance HUD: Δheap/min trend** — the heap readout now shows a rolling 60-second trend (e.g. `heap: 256.5 MB (+12.3/min)`). A steady positive slope indicates leak-shaped growth; a slope near zero with a high plateau is a GC seesaw. This turns the single heap number into a diagnosis.
+* **DPR compositing fix: falsified on the Tab S6 Lite** — the field test showed no change vs baseline (45 fps during movement, stalls persist), so the Chromium 449095626 workaround does not transfer to this build. The toggle stays available (default off) for further testing on other devices; it is a visual no-op at scale factor 1.
+
 ## 5.7.0-beta.1
 
 ### Tablet Jank Probe Harness + DPR Compositing Workaround
