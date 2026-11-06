@@ -1,9 +1,21 @@
 name: Release
 
+# Trigger on BARE SEMVER ONLY (e.g. 5.8.0).
+#
+# DO NOT add a 'v*' pattern back. This repo's stable tags are bare semver
+# (5.7.0, 5.8.0); `v`-prefixed tags were only ever an occasional alias. With
+# BOTH patterns listed, pushing `5.8.0` and `v5.8.0` at the same commit matched
+# TWO tag pushes and produced TWO identical published releases (releases
+# 437139539 and 437139576, 2026-11-06) — one per pattern, both from the same
+# commit, both attaching the same axidos-card.js. 5.5.1 hit the same trap
+# earlier and it went unnoticed.
+#
+# If a `v`-prefixed tag is ever needed for external tooling, create it with a
+# tag name that does NOT match this glob, or delete the extra release
+# immediately; do not widen the trigger.
 on:
   push:
     tags:
-      - 'v*'
       - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
