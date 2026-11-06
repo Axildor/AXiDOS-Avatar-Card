@@ -144,9 +144,11 @@ export function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill('url(#haloGradListen)');
     a.el.eyeHalo.style.opacity = '0.05';
     a.setEyeCenterColor('#aaffff');
-    // Servo drive with a yaw: she turns the housing toward the speaker.
+    // Servo drive onto the listening pose. 5.8.1: a duplicate setHead() carrying
+    // the yaw skew used to sit one line below this — same frame, so it replaced
+    // the overshoot target and the servo transient never played. Gone with the
+    // shear, so the drive is visible as designed.
     servoToPose(card, { r: 4, tx: 0, ty: -8, s: 1.06 }, { dur: 0.3, settleMs: 130 });
-    a.setHead(4, 0, -8, 1.06, 0.3, 'cubic-bezier(0.08, 0.95, 0.12, 1.02)', 2.5, 1.0);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
     a.setLEDs('#00ccff', '1');

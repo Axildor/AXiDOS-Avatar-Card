@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.8.1
+
+### Her Scans Look, Instead of Distorting
+
+* **Fixed: her side-to-side scans distorted the model instead of turning it.** 5.8.0 added a subtle "yaw" to those scans — the idea being that she turns her whole head casing toward whatever she is looking at. It did not read that way, and the reason is geometric rather than a matter of tuning the amount. The effect was built by *leaning* the casing shape sideways, and leaning a painted object is not the same thing as turning it: the lighting and shading baked into the artwork stay where they are, so the head looks like it is being pushed out of shape rather than rotated. The one cue that would genuinely change with a real turn — the head getting very slightly narrower — works out to well under a pixel at this scale, so there was never enough of it to see.
+* **Scanning is now a sledge.** When she looks to one side, she travels a few pixels along her rail, tilts a little on her neck, and *points her optic* at what she is looking at. All three are things a suspended assembly on a rail genuinely does, and none of them need the artwork to be redrawn from a different angle.
+* **The eye now carries the look.** The optic aims toward the target and holds there while she looks, rather than being re-centred by the next idle glance. The aiming stays inside the socket so the iris never flattens against the rim.
+* **A fixed bug that came with the removal.** Entering the listening state never actually played its servo drive — a second, near-identical head command was issued in the same instant and cancelled the first. Her snap into the listening pose now plays as the short overshoot-then-settle it was always meant to be.
+* **No artwork change, no new layers, no extra per-frame work.** The removal is a subtraction: one transform channel deleted, everything else on the same single write per pose.
+
 ## 5.8.0
 
 ### She Moves Like the Machine She Is
@@ -13,7 +23,7 @@ This release is about how AXiDOS moves, and about giving you control over it. No
 * **Her iris works as an aperture, not an eyelid** — the idle optic no longer jitters randomly between near-open positions. It snaps between three deliberate states: narrowed (appraising you), half (nothing to do), and wide (alert). Each change is a two-stage mechanical snap — a fast drive, then a settle onto the limit stop — with long, uneven holds in between. She is still far more often than she moves; the stillness is the point.
 * **She holds station instead of going slack** — at rest her head no longer locks at exactly neutral and waits. It makes tiny sub-degree corrections, fast and hard-stopped, at irregular intervals: the servo holding a suspended mass against its load.
 * **Her dance moves are driven, not swayed** — the dance easing curves were human motion (accelerate gently, ease into the target). They are now actuator motion: a hard drive into a damped settle on hits, and constant-velocity travel on glides, as if on a screw drive.
-* **Looking, not just tilting** — her side-to-side idle scans now turn the whole housing slightly toward the target, clamped so the silhouette never shears past the socket. She looks along the rail.
+* **Looking, not just tilting** — her side-to-side idle scans now turn the whole housing slightly toward the target, clamped so the silhouette never shears past the socket. She looks along the rail. *(Superseded in 5.8.1: this leaned the casing rather than turning it, which distorted the model. Scans are now a rail sledge plus optic gaze — see 5.8.1.)*
 * **Processing looks like work** — the random pupil darts during the processing state are replaced with a deterministic raster sweep: left to right, right to left, three rows, reading the room like a scanner reads lines. Same sweep every time, which is what makes it read as machinery.
 * **Her optic glow follows the music's energy** — the halo brightness is no longer two fixed values that flick between each other. It tracks the dance's energy envelope continuously, so the light rises and falls with the song instead of toggling.
 * **The indicator LEDs now report what she is doing** — a slow travelling sweep while she dances, a faster pulse on peak phrases. This is done with one CSS class per phrase, animated on the GPU, not with per-dot JavaScript.

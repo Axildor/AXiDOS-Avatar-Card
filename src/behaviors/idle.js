@@ -1,6 +1,6 @@
 /**
  * behaviors/idle.js — the idle behavior engine: aperture states, station-
- * keeping, yaw scans, mechanical glitch.
+ * keeping, rail scans, mechanical glitch.
  *
  * All functions take `card` (the AxidosCard instance) which exposes:
  *   card.animator      — AxidosAnimator (motion primitives + tracked scheduling)
@@ -15,8 +15,8 @@
  *  - At rest she does STATION-KEEPING: sub-degree corrections that hunt around
  *    the setpoint with a fast attack and a hard stop. There is no organic
  *    wander, no easing in and out, no direction of travel.
- *  - Scans TURN the housing (skewX yaw) so she looks along the rail instead of
- *    tilting her head like a person.
+ *  - A scan is a SLEDGE, not a lean (5.8.1): rail travel + gimbal tilt + optic
+ *    gaze. The 5.8.0 shear distorted the casing instead of turning it.
  *
  * Perf: every channel is TIMER-scheduled. The old lid loop was already moved
  * off RAF in 5.8.0-alpha; the glitch is the only RAF user left, and reduced
@@ -29,6 +29,7 @@
 import {
   APERTURE, apertureAt, processingApertureAt, rasterWaypoints,
   stationKeepAt, servoSnap, SERVO_HARD_STOP_EASE,
+  clampGaze, GAZE_BIAS_X, GAZE_BIAS_Y,
 } from './mechanical.js';
 import {
   allowsGlitch, apertureHoldScale,
@@ -115,10 +116,9 @@ export function stopLidBehavior(card) {
 /**
  * `exec(card, a, p)` where p is the servo profile.
  *
- * scan_right / scan_left use the new skewX yaw channel (2.6): the housing
- * turns AND the pose tilts, so she looks along the rail rather than nodding.
- * The yaw is deliberately opposite the head rotation — the casing leads, the
- * head follows, which is what a fixed optic on a slewing mount does.
+ * Scans are SLEDGES (5.8.1): `tx` rail travel, gimbal `rot`, directed OPTIC
+ * gaze. The gaze must be set on `card._idleGaze` (not straight to setPupil) so
+ * the dart loop composes around it instead of erasing it.
  */
 const IDLE_BEHAVIORS = [
   {
@@ -153,11 +153,14 @@ const IDLE_BEHAVIORS = [
   },
   {
     name: 'scan_right',
+    // Tilt is 9° (down from the retired 12°) so the read is travel, not lean.
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, -5.5, 0.985);
+      card._idleGaze = { x: GAZE_BIAS_X, y: -GAZE_BIAS_Y };
+      a.setHead(9 * k, 3 * k, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
       a.setBodySwivel(-2, 1, 1.6);
+      a.setPupil(GAZE_BIAS_X * k, -GAZE_BIAS_Y * k);
     },
     min: 4200, max: 8200, weight: 1.5,
   },
@@ -165,9 +168,11 @@ const IDLE_BEHAVIORS = [
     name: 'scan_left',
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(-12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, 5.5, 0.985);
+      card._idleGaze = { x: -GAZE_BIAS_X, y: -GAZE_BIAS_Y };
+      a.setHead(-9 * k, -3 * k, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
       a.setBodySwivel(2, 1, 1.6);
+      a.setPupil(-GAZE_BIAS_X * k, -GAZE_BIAS_Y * k);
     },
     min: 4200, max: 8200, weight: 1.5,
   },
@@ -175,21 +180,26 @@ const IDLE_BEHAVIORS = [
     name: 'curious',
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(8 * k, 0, -20 * k, 1.05, 0.95, SERVO_HARD_STOP_EASE, -3.5, 1.0);
+      card._idleGaze = { x: -2.5 * k, y: 0 };
+      a.setHead(8 * k, 0, -20 * k, 1.05, 0.95, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.wide + (p.apertureBias || 0), 0.18);
       a.setBodySwivel(-2, 1, 1.4);
+      a.setPupil(-2.5 * k, 0);
     },
     min: 4000, max: 8000, weight: 2,
   },
   {
     name: 'contemptuous',
-    // The appraisal pose: the aperture pinches down and the housing turns
-    // slightly away. No blink-back timer — the aperture channel owns that.
+    // The appraisal pose: the aperture pinches down, she sledges away and
+    // rolls her optic off the subject. No blink-back timer — the aperture
+    // channel owns that.
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(-6 * k, 0, 15 * k, 0.95, 1.4, SERVO_HARD_STOP_EASE, 4.5, 0.98);
+      card._idleGaze = { x: 3 * k, y: 1 * k };
+      a.setHead(-6 * k, -1.5 * k, 15 * k, 0.95, 1.4, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + 0.06 + (p.apertureBias || 0), 0.2);
       a.setBodySwivel(1.5, 1, 1.8);
+      a.setPupil(3 * k, 1 * k);
     },
     min: 5000, max: 10000, weight: 2,
   },
@@ -197,9 +207,11 @@ const IDLE_BEHAVIORS = [
     name: 'alert',
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(0, 0, -25 * k, 1.08, 0.22, SERVO_HARD_STOP_EASE, 0, 1.0);
+      card._idleGaze = { x: 0, y: -2 * k };
+      a.setHead(0, 0, -25 * k, 1.08, 0.22, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.wide, 0.12);
       a.setBodySwivel(-1, 1, 0.4);
+      a.setPupil(0, -2 * k);
     },
     min: 1500, max: 3000, weight: 1,
   },
@@ -207,9 +219,11 @@ const IDLE_BEHAVIORS = [
     name: 'bored',
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(2 * k, 0, 20 * k, 0.96, 2.2, SERVO_HARD_STOP_EASE, -2, 1.0);
+      card._idleGaze = { x: -1.5 * k, y: 2 * k };
+      a.setHead(2 * k, 0, 20 * k, 0.96, 2.2, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.half, 0.5);
       a.setBodySwivel(1, 1, 2.6);
+      a.setPupil(-1.5 * k, 2 * k);
     },
     min: 7000, max: 14000, weight: 1.5,
   },
@@ -220,8 +234,10 @@ const IDLE_BEHAVIORS = [
       a.setBodySwivel(-6, 0.96, 2.2);
       a.setTimeout('idle-blink', () => {
         if (card._state !== 'idle') return;
-        a.setHead(6 * k, 0, -3 * k, 1.02, 1.0, SERVO_HARD_STOP_EASE, -4, 0.99);
+        card._idleGaze = { x: 2 * k, y: 0 };
+        a.setHead(6 * k, 2 * k, -3 * k, 1.02, 1.0, SERVO_HARD_STOP_EASE);
         a.setBaseLid(APERTURE.half, 0.3);
+        a.setPupil(2 * k, 0);
       }, 600);
     },
     min: 4000, max: 8000, weight: 0.8,
@@ -278,8 +294,18 @@ function dartPupil(card) {
   const p = personalityOf(card);
   // Pupil darts are the OPTIC's only independent motion: a rigidly mounted
   // optic still has to track. Sub-degree scale, hard stop, irregular cadence.
+  //
+  // 5.8.1 GAZE BIAS: this loop re-aims on an ABSOLUTE write every 0.9–3.5 s,
+  // which would erase a scan's directed gaze within about a second. So the
+  // jitter is added to card._idleGaze and the SUM clamped — a dart near a scan
+  // bias reads as the optic re-acquiring its target.
   const max = 5 * servoAmplitude(1, p);
-  a.setPupil((Math.random() - 0.5) * max * 2, (Math.random() - 0.5) * max * 2);
+  const bias = card._idleGaze || { x: 0, y: 0 };
+  const g = clampGaze(
+    bias.x + (Math.random() - 0.5) * max * 2,
+    bias.y + (Math.random() - 0.5) * max * 2,
+  );
+  a.setPupil(g.x, g.y);
   a.setTimeout('idle-pupil', () => dartPupil(card), 900 + Math.random() * 2600);
 }
 
@@ -287,6 +313,9 @@ function runNextIdleBehavior(card) {
   if (card._state !== 'idle') return;
   const a = card.animator;
   const p = personalityOf(card);
+  // Clear the gaze BEFORE dispatching: only the chosen behavior may set a bias,
+  // so one scan's look never leaks into the next (e.g. a passive hold).
+  card._idleGaze = { x: 0, y: 0 };
   let r = Math.random() * IDLE_BEHAVIORS.reduce((s, b) => s + b.weight, 0);
   let chosen = IDLE_BEHAVIORS[0];
   for (const b of IDLE_BEHAVIORS) {
@@ -317,6 +346,7 @@ export function servoToPose(card, pose, opts) {
 export function startIdleCycle(card) {
   stopIdleCycle(card);
   card._stationKeepIndex = 0;
+  card._idleGaze = { x: 0, y: 0 };
   dartPupil(card);
   card.animator.setTimeout('idle-behavior', () => runNextIdleBehavior(card), 2000 + Math.random() * 3000);
 }
@@ -372,6 +402,9 @@ export function startIdleHeadPoses(card) {
 export function stopIdleCycle(card) {
   stopIdleHeadPoses(card);
   card.animator.clearTimeout('idle-pupil');
+  // Centre the optic: the pupil is separate from the head pose and would
+  // otherwise carry a scan bias into the next state.
+  card._idleGaze = { x: 0, y: 0 };
 }
 
 // ---- Raster scan (processing) ----

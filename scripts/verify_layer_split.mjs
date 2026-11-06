@@ -44,7 +44,7 @@
 
 import { buildTemplate, auditCrossSvgDefs, EYE_CENTER_VARIANTS, EYE_HALO_VARIANTS } from '../src/template.js';
 import { sanitizeConfig } from '../src/config.js';
-import { AxidosAnimator, MAX_HEAD_SKEW } from '../src/animator.js';
+import { AxidosAnimator } from '../src/animator.js';
 
 let failures = 0;
 let passed = 0;
@@ -293,13 +293,12 @@ console.log('\n== 8. A3a write-parity: all pivot copies receive identical writes
   const cycle = [
     () => anim.setHead(12, 0, -5, 0.98, 1.4),
     () => anim.setHead(-6, 3, 15, 1.05, 1.2, 'linear'),
-    // 5.8.0 YAW: the skew/scaleX group rides the SAME transform string, so it
-    // must inherit the same write-to-ALL-copies parity. A layer split that
-    // updated only the primary head copy would shear one layer and not the
-    // other — the mirror chain would become visible.
-    () => anim.setHead(12, 0, -5, 0.98, 1.1, 'linear', -5.5, 0.985),
-    () => anim.setHead(-12, 0, -5, 0.98, 1.1, 'linear', 5.5, 0.985),
-    () => anim.setHead(0, 0, 0, 1.0, 1.0, 'linear', 0, 1),
+    // 5.8.1: the sledge pose a scan actually issues now — rail travel plus
+    // gimbal tilt, no shear. It still has to reach every mirrored copy, so the
+    // write-parity cycle keeps covering the full six-argument form.
+    () => anim.setHead(9, 3, -5, 0.98, 1.1, 'linear'),
+    () => anim.setHead(-9, -3, -5, 0.98, 1.1, 'linear'),
+    () => anim.setHead(0, 0, 0, 1.0, 1.0, 'linear'),
     () => anim.setBodySwivel(-2, 1, 1.8),
     () => anim.setBodySwivel(1, 0.98, 2.0),
     () => anim.resetBodySwivel(),
@@ -314,24 +313,28 @@ console.log('\n== 8. A3a write-parity: all pivot copies receive identical writes
       assert(rest.every((s) => s === first), `all ${name} copies carry identical inline styles after the cycle step`);
     }
   }
-  // 8b. The yaw group is part of the SAME transform (no extra element, no
-  // extra layer): the neutral write must stay byte-identical to the pre-5.8.0
-  // string so every existing pose keeps an identical write count.
+  // 8b. 5.8.1: an empty transform group. The 5.8.0 yaw added a conditional
+  // `skewX(...) scaleX(...)` tail; the shear was retired because it leans both
+  // silhouette edges while the baked top-light stays level (the model reads as
+  // distorting, not turning), so the head transform is now exactly six
+  // arguments with NO conditional suffix. This pins that a stray write can
+  // never reintroduce one, and that removing it cost no layer.
   {
     const s = makeShadow();
     const an = new AxidosAnimator(s);
     an.setHead(3, 1, -2, 1.02, 1.0);
     assert(an.el.head[0].style.transform === 'translate3d(1px,-2px,0) rotate(3deg) scale(1.02)',
-      `neutral yaw: transform string unchanged from pre-5.8.0 ("${an.el.head[0].style.transform}")`);
+      `head transform is the exact six-argument string ("${an.el.head[0].style.transform}")`);
+    // Surplus arguments are inert — a stale caller passing the retired
+    // skew/scaleX pair must not resurrect the shear.
     an.setHead(3, 1, -2, 1.02, 1.0, undefined, 99, 1);
-    assert(an.el.head[0].style.transform.endsWith(`skewX(${MAX_HEAD_SKEW}deg) scaleX(1)`),
-      `yaw is clamped to MAX_HEAD_SKEW (${MAX_HEAD_SKEW}°) and appended after the existing groups`);
+    assert(an.el.head[0].style.transform === 'translate3d(1px,-2px,0) rotate(3deg) scale(1.02)',
+      'surplus skew/scaleX arguments are inert (the shear cannot be resurrected)');
     assert(an.el.head.every((e) => e.style.transform === an.el.head[0].style.transform),
-      'the clamped yaw write reaches every mirrored head copy identically');
-    // The yaw group must NOT introduce a new SVG element/layer (the HARD
-    // LIMIT of 1 backdrop + 4 movers still holds).
+      'the pose write reaches every mirrored head copy identically');
+    // No new SVG element/layer (the HARD LIMIT of 1 backdrop + 4 movers holds).
     const layerCount = [...tpl.matchAll(/<svg id="axidos-svg-[a-z]+"/g)].length;
-    assert(layerCount === 5, `the yaw channel adds no layer (still ${layerCount} stacked SVGs)`);
+    assert(layerCount === 5, `retiring the shear adds no layer (still ${layerCount} stacked SVGs)`);
   }
 
   // freezeHeadMotion: each copy frozen from its OWN computed transform.

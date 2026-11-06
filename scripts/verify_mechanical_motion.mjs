@@ -16,8 +16,9 @@
  *  7. REDUCED MOTION (3.12): glitch, strobe and conduit suppressed; the
  *     static frame is reproducible.
  *  8. FLASH CAP (3.13): strobe period >= 0.5 s at every tier and BPM.
- *  9. YAW CLAMP (2.6): skewX never breaks the socket silhouette, and the
- *     neutral pose is byte-identical to the pre-5.8.0 transform string.
+ *  9. YAW RETIREMENT (5.8.1): the shear is gone from setHead and from the
+ *     source, surplus transform args are inert, and the optic gaze is clamped
+ *     to the socket translation budget with its direction preserved.
  * 10. PERSONALITY (2.10): every mood directive maps to a profile, the profiles
  *     are distinct, and mood is absent-safe.
  * 11. TALK (2.9): seeded, no immediate repeat, cheaper than the old 9-pose
@@ -33,6 +34,7 @@ import {
   APERTURE, APERTURE_CYCLE, APERTURE_MIN_HOLD_MS, APERTURE_MAX_HOLD_MS,
   RASTER_MAX_X, RASTER_MAX_Y, RASTER_ROWS, RASTER_COLS,
   STATION_KEEP_MAX_R, SERVO_HARD_STOP_EASE,
+  clampGaze, GAZE_MAX_PX, GAZE_BIAS_X, GAZE_BIAS_Y,
 } from '../src/behaviors/mechanical.js';
 import {
   startLidBehavior, stopLidBehavior, startIdleCycle, stopIdleCycle,
@@ -48,7 +50,10 @@ import {
 import { servoPersonality, SERVO_PROFILES, SERVO_NEUTRAL } from '../src/personality.js';
 import { sanitizeConfig } from '../src/config.js';
 import { parseMood } from '../src/state-mapper.js';
-import { AxidosAnimator, MAX_HEAD_SKEW } from '../src/animator.js';
+import { AxidosAnimator } from '../src/animator.js';
+// Namespace form as well: section 9 pins that the retired MAX_HEAD_SKEW export
+// is GONE, which needs to look at the module surface rather than an import.
+import * as animModule from '../src/animator.js';
 import { EYE_CENTER_VARIANTS, EYE_HALO_VARIANTS } from '../src/template.js';
 
 /**
@@ -108,6 +113,9 @@ function makeAnimator() {
     clearTimeout(name) { this._timers.delete(name); },
     requestRaf(name, fn) { this._rafs.set(name, fn); return name; },
     cancelRaf(name) { this._rafs.delete(name); },
+    // 5.8.1: the shear arguments are gone. The stub keeps the surplus params in
+    // its signature only so section 9c can prove they are INERT — a stale
+    // caller passing skew/scaleX must produce the same pose, never a shear.
     setHead(r, tx, ty, s, dur, ease, skew, scaleX) {
       this._headCalls.push({ r, tx, ty, s, dur, ease, skew, scaleX });
     },
@@ -563,41 +571,73 @@ console.log('\n== 8. Flash cap: strobe period >= 0.5 s (3.13) ==');
 function buildTemplateForCheck() { return buildTemplateCached; }
 
 // ============================================================
-console.log('\n== 9. Yaw clamp (2.6) ==');
+console.log('\n== 9. Yaw retirement (5.8.1) ==');
 {
+  // 9a. The shear is gone from the SOURCE, not just from the call sites. The
+  // 5.8.0 channel leaned both silhouette edges while the baked top-light
+  // (#ceramicShadow, horizontal iso-bands) stayed level, and turned the
+  // circular iris into a tilted ellipse — the eye read a distorting model, not
+  // a turning one. Its honest cue (foreshortening of the 130 px casing) is
+  // 0.7 px, so no angle choice could have worked. This pins the removal.
+  assert(!Object.prototype.hasOwnProperty.call(animModule, 'MAX_HEAD_SKEW'),
+    'MAX_HEAD_SKEW is no longer exported (the shear clamp went with the shear)');
+  // NOTE: Function.length counts parameters BEFORE the first default, and
+  // `scale = 1.0` is the 4th — so the expected arity here is 3, not 6. The
+  // 6-parameter signature is pinned behaviourally by 9b/9c below; this line
+  // only guards that the first three stay required.
+  assert(AxidosAnimator.prototype.setHead.length === 3,
+    `setHead requires rot/tx/ty before any default (got ${AxidosAnimator.prototype.setHead.length})`);
+
   const shadow = makeShadow();
   const anim = new AxidosAnimator(shadow);
   const heads = anim.el.head;
-  anim.setHead(0, 0, 0, 1.0, 1.0);
-  const neutral = heads[0].style.transform;
-  assert(neutral === 'translate3d(0px,0px,0) rotate(0deg) scale(1)',
-    `neutral yaw is BYTE-IDENTICAL to the pre-5.8.0 transform string (got "${neutral}")`);
 
-  anim.setHead(0, 0, 0, 1.0, 1.0, undefined, -5.5, 0.985);
-  assert(/skewX\(-5\.5deg\) scaleX\(0\.985\)$/.test(heads[0].style.transform),
-    `yaw is appended to the SAME transform string ("${heads[0].style.transform}")`);
+  // 9b. The neutral pose is byte-identical to the only transform string that
+  // now exists — the pre-5.8.0 one. No `tail`, no conditional suffix.
+  anim.setHead(3, 1, -2, 1.02, 1.0, 'linear');
+  const pose = heads[0].style.transform;
+  assert(pose === 'translate3d(1px,-2px,0) rotate(3deg) scale(1.02)',
+    `head transform is exactly the six-argument string (got "${pose}")`);
+  assert(!pose.includes('skew') && !pose.includes('scaleX('),
+    'no skew/scaleX group can appear in a head transform');
 
-  // Clamp: an absurd request is bounded to MAX_HEAD_SKEW on both sides.
-  anim.setHead(0, 0, 0, 1.0, 1.0, undefined, 90, 1);
-  assert(heads[0].style.transform.includes(`skewX(${MAX_HEAD_SKEW}deg)`),
-    `skewX clamps to +${MAX_HEAD_SKEW}deg (silhouette cannot be sheared past the socket)`);
-  anim.setHead(0, 0, 0, 1.0, 1.0, undefined, -90, 1);
-  assert(heads[0].style.transform.includes(`skewX(-${MAX_HEAD_SKEW}deg)`),
-    `skewX clamps to -${MAX_HEAD_SKEW}deg`);
-  // Non-finite yaw degrades to neutral, never to NaN in the transform.
-  anim.setHead(0, 0, 0, 1.0, 1.0, undefined, NaN, 1);
-  assert(!heads[0].style.transform.includes('NaN'), 'a non-finite yaw degrades to neutral (no NaN in the transform)');
+  // 9c. Surplus transform arguments are INERT, not silently honoured. A stale
+  // caller still passing skew/scaleX (an out-of-tree behavior module, a cached
+  // bundle) must produce the same pose, never a resurrected shear.
+  anim.setHead(3, 1, -2, 1.02, 1.0, 'linear', 6, 1);
+  assert(heads[0].style.transform === pose,
+    'surplus skew/scaleX arguments are ignored (a stale caller cannot resurrect the shear)');
+  anim.setHead(3, 1, -2, 1.02, 1.0, 'linear', NaN, 1);
+  assert(!heads[0].style.transform.includes('NaN'),
+    'a non-finite surplus argument cannot leak NaN into the transform');
 
-  // Every copy receives the identical string (layer-split write parity).
+  // 9d. Write parity survives the removal: every mirrored copy still receives
+  // the identical string, and there are still exactly 5 stacked layers.
   assert(heads.every((h) => h.style.transform === heads[0].style.transform),
-    'the yaw write reaches ALL head copies identically');
+    'the pose write still reaches ALL head copies identically');
+  const layerCount = [...buildTemplateForCheck().matchAll(/<svg id="axidos-svg-[a-z]+"/g)].length;
+  assert(layerCount === 5, `retiring the shear adds no layer (still ${layerCount} stacked SVGs)`);
 
-  // MAX_HEAD_SKEW is documented as within the casing-overhang budget.
-  const casingOverhangPx = 24; // (130 px casing - 66 px cavity) / 2 - margin
-  const casingHalfHeight = 124;
-  const displacement = Math.tan(MAX_HEAD_SKEW * Math.PI / 180) * casingHalfHeight;
-  assert(displacement < casingOverhangPx,
-    `MAX_HEAD_SKEW (${MAX_HEAD_SKEW}°) displaces the casing edge ${displacement.toFixed(1)} px < ${casingOverhangPx} px overhang (silhouette intact)`);
+  // 9e. CLAMPGAZE — the replacement channel. The optic's geometric budget is
+  // the socket face radius minus the iris radius (23 − 17.6 = 5.4 px, applied
+  // by socketClip); GAZE_MAX_PX leaves a 0.4 px margin so the iris never sits
+  // flush against the rim.
+  assert(GAZE_MAX_PX === 5, `gaze budget is ${GAZE_MAX_PX} px inside the 5.4 px socket budget`);
+  assert(GAZE_MAX_PX < 23 - 17.6, 'gaze budget stays strictly inside the socket translation budget');
+  const inside = clampGaze(2, -3);
+  assert(inside.x === 2 && inside.y === -3, 'a gaze inside the budget passes through unchanged');
+  const corner = clampGaze(GAZE_BIAS_X, GAZE_BIAS_Y);
+  assert(Math.hypot(corner.x, corner.y) <= GAZE_MAX_PX + 1e-9,
+    `the bias corner (${GAZE_BIAS_X}, ${GAZE_BIAS_Y}) is inside the budget (|v|=${Math.hypot(corner.x, corner.y).toFixed(2)})`);
+  // Oversize: scaled DOWN along the same direction (per-axis clipping would
+  // bend a diagonal look toward the nearer axis).
+  const over = clampGaze(30, 40);
+  assert(Math.abs(Math.hypot(over.x, over.y) - GAZE_MAX_PX) < 1e-9,
+    `an oversize gaze is scaled to exactly ${GAZE_MAX_PX} px (got ${Math.hypot(over.x, over.y).toFixed(4)})`);
+  assert(Math.abs(over.x / over.y - 30 / 40) < 1e-9,
+    'the clamp preserves the gaze DIRECTION (no per-axis bending)');
+  const nanGaze = clampGaze(NaN, undefined);
+  assert(nanGaze.x === 0 && nanGaze.y === 0, 'a non-finite gaze degrades to centre, never to NaN');
 }
 
 // ============================================================

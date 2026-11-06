@@ -1630,6 +1630,17 @@ var RASTER_ROWS = 3;
 var RASTER_COLS = 4;
 var RASTER_MAX_X = 6.4;
 var RASTER_MAX_Y = 3.2;
+var GAZE_MAX_PX = 5;
+var GAZE_BIAS_X = 4;
+var GAZE_BIAS_Y = 1.5;
+function clampGaze(x, y) {
+  const px = Number.isFinite(x) ? x : 0;
+  const py = Number.isFinite(y) ? y : 0;
+  const mag = Math.hypot(px, py);
+  if (mag <= GAZE_MAX_PX) return { x: px, y: py };
+  const k = GAZE_MAX_PX / mag;
+  return { x: px * k, y: py * k };
+}
 function rasterWaypoints(seed = 0) {
   const pts = [];
   for (let row = 0; row < RASTER_ROWS; row++) {
@@ -1853,11 +1864,14 @@ var IDLE_BEHAVIORS = [
   },
   {
     name: "scan_right",
+    // Tilt is 9° (down from the retired 12°) so the read is travel, not lean.
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, -5.5, 0.985);
+      card._idleGaze = { x: GAZE_BIAS_X, y: -GAZE_BIAS_Y };
+      a.setHead(9 * k, 3 * k, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
       a.setBodySwivel(-2, 1, 1.6);
+      a.setPupil(GAZE_BIAS_X * k, -GAZE_BIAS_Y * k);
     },
     min: 4200,
     max: 8200,
@@ -1867,9 +1881,11 @@ var IDLE_BEHAVIORS = [
     name: "scan_left",
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(-12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, 5.5, 0.985);
+      card._idleGaze = { x: -GAZE_BIAS_X, y: -GAZE_BIAS_Y };
+      a.setHead(-9 * k, -3 * k, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
       a.setBodySwivel(2, 1, 1.6);
+      a.setPupil(-GAZE_BIAS_X * k, -GAZE_BIAS_Y * k);
     },
     min: 4200,
     max: 8200,
@@ -1879,9 +1895,11 @@ var IDLE_BEHAVIORS = [
     name: "curious",
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(8 * k, 0, -20 * k, 1.05, 0.95, SERVO_HARD_STOP_EASE, -3.5, 1);
+      card._idleGaze = { x: -2.5 * k, y: 0 };
+      a.setHead(8 * k, 0, -20 * k, 1.05, 0.95, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.wide + (p.apertureBias || 0), 0.18);
       a.setBodySwivel(-2, 1, 1.4);
+      a.setPupil(-2.5 * k, 0);
     },
     min: 4e3,
     max: 8e3,
@@ -1889,13 +1907,16 @@ var IDLE_BEHAVIORS = [
   },
   {
     name: "contemptuous",
-    // The appraisal pose: the aperture pinches down and the housing turns
-    // slightly away. No blink-back timer — the aperture channel owns that.
+    // The appraisal pose: the aperture pinches down, she sledges away and
+    // rolls her optic off the subject. No blink-back timer — the aperture
+    // channel owns that.
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(-6 * k, 0, 15 * k, 0.95, 1.4, SERVO_HARD_STOP_EASE, 4.5, 0.98);
+      card._idleGaze = { x: 3 * k, y: 1 * k };
+      a.setHead(-6 * k, -1.5 * k, 15 * k, 0.95, 1.4, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.narrow + 0.06 + (p.apertureBias || 0), 0.2);
       a.setBodySwivel(1.5, 1, 1.8);
+      a.setPupil(3 * k, 1 * k);
     },
     min: 5e3,
     max: 1e4,
@@ -1905,9 +1926,11 @@ var IDLE_BEHAVIORS = [
     name: "alert",
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(0, 0, -25 * k, 1.08, 0.22, SERVO_HARD_STOP_EASE, 0, 1);
+      card._idleGaze = { x: 0, y: -2 * k };
+      a.setHead(0, 0, -25 * k, 1.08, 0.22, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.wide, 0.12);
       a.setBodySwivel(-1, 1, 0.4);
+      a.setPupil(0, -2 * k);
     },
     min: 1500,
     max: 3e3,
@@ -1917,9 +1940,11 @@ var IDLE_BEHAVIORS = [
     name: "bored",
     exec(card, a, p) {
       const k = servoAmplitude(1, p);
-      a.setHead(2 * k, 0, 20 * k, 0.96, 2.2, SERVO_HARD_STOP_EASE, -2, 1);
+      card._idleGaze = { x: -1.5 * k, y: 2 * k };
+      a.setHead(2 * k, 0, 20 * k, 0.96, 2.2, SERVO_HARD_STOP_EASE);
       a.setBaseLid(APERTURE.half, 0.5);
       a.setBodySwivel(1, 1, 2.6);
+      a.setPupil(-1.5 * k, 2 * k);
     },
     min: 7e3,
     max: 14e3,
@@ -1932,8 +1957,10 @@ var IDLE_BEHAVIORS = [
       a.setBodySwivel(-6, 0.96, 2.2);
       a.setTimeout("idle-blink", () => {
         if (card._state !== "idle") return;
-        a.setHead(6 * k, 0, -3 * k, 1.02, 1, SERVO_HARD_STOP_EASE, -4, 0.99);
+        card._idleGaze = { x: 2 * k, y: 0 };
+        a.setHead(6 * k, 2 * k, -3 * k, 1.02, 1, SERVO_HARD_STOP_EASE);
         a.setBaseLid(APERTURE.half, 0.3);
+        a.setPupil(2 * k, 0);
       }, 600);
     },
     min: 4e3,
@@ -1994,13 +2021,19 @@ function dartPupil(card) {
   const a = card.animator;
   const p = personalityOf(card);
   const max = 5 * servoAmplitude(1, p);
-  a.setPupil((Math.random() - 0.5) * max * 2, (Math.random() - 0.5) * max * 2);
+  const bias = card._idleGaze || { x: 0, y: 0 };
+  const g = clampGaze(
+    bias.x + (Math.random() - 0.5) * max * 2,
+    bias.y + (Math.random() - 0.5) * max * 2
+  );
+  a.setPupil(g.x, g.y);
   a.setTimeout("idle-pupil", () => dartPupil(card), 900 + Math.random() * 2600);
 }
 function runNextIdleBehavior(card) {
   if (card._state !== "idle") return;
   const a = card.animator;
   const p = personalityOf(card);
+  card._idleGaze = { x: 0, y: 0 };
   let r = Math.random() * IDLE_BEHAVIORS.reduce((s, b) => s + b.weight, 0);
   let chosen = IDLE_BEHAVIORS[0];
   for (const b of IDLE_BEHAVIORS) {
@@ -2027,6 +2060,7 @@ function servoToPose(card, pose, opts) {
 function startIdleCycle(card) {
   stopIdleCycle(card);
   card._stationKeepIndex = 0;
+  card._idleGaze = { x: 0, y: 0 };
   dartPupil(card);
   card.animator.setTimeout("idle-behavior", () => runNextIdleBehavior(card), 2e3 + Math.random() * 3e3);
 }
@@ -2057,6 +2091,7 @@ function startIdleHeadPoses(card) {
 function stopIdleCycle(card) {
   stopIdleHeadPoses(card);
   card.animator.clearTimeout("idle-pupil");
+  card._idleGaze = { x: 0, y: 0 };
 }
 var RASTER_SEED = 0;
 function startRasterScan(card) {
@@ -2592,7 +2627,6 @@ function applyStateVisuals(card, state, bpm, mood) {
     a.el.eyeHalo.style.opacity = "0.05";
     a.setEyeCenterColor("#aaffff");
     servoToPose(card, { r: 4, tx: 0, ty: -8, s: 1.06 }, { dur: 0.3, settleMs: 130 });
-    a.setHead(4, 0, -8, 1.06, 0.3, "cubic-bezier(0.08, 0.95, 0.12, 1.02)", 2.5, 1);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
     a.setLEDs("#00ccff", "1");
@@ -3204,7 +3238,6 @@ ${liteCss}${reducedCss}
 }
 
 // src/animator.js
-var MAX_HEAD_SKEW = 6;
 var AxidosAnimator = class {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root
@@ -3355,21 +3388,19 @@ var AxidosAnimator = class {
    * pose for many beats, so the browser has nothing to interpolate) is fixed
    * UPSTREAM in choreography.js via the living-hold breath, not here.
    *
-   * 5.8.0 YAW (optional skew/scaleX): a scan can TURN the optic toward a
-   * target instead of only tilting it. The optic is rigidly mounted, so this
-   * is the housing yawing on its pivot — never the eye rotating inside the
-   * socket. Both default to neutral and are APPENDED to the same single
-   * transform string, so the write count per beat is unchanged. skewX is
-   * clamped so the silhouette can never break the socket (see setHead's
-   * caller contract in idle.js and the verify suite's clamp check).
+   * 5.8.1 YAW RETIREMENT — do not reintroduce a shear. 5.8.0 appended an
+   * optional `skewX`/`scaleX` pair here to fake a turn. A shear is the wrong
+   * transform for a lit solid: it leans both vertical edges while the baked
+   * top-light (#ceramicShadow) stays level, and it turns the circular iris into
+   * a tilted ellipse — the eye reads deformation, not rotation. Its one honest
+   * cue (casing foreshortening) is 0.7 px; the shear moved the chin 20.4 px.
+   * A real turn needs pre-painted three-quarter artwork. A scan now uses `rot`
+   * (gimbal), `tx` (rail travel) and the gaze bias in idle.js.
    */
-  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)", skew = 0, scaleX = 1) {
-    const yaw = typeof skew === "number" && Number.isFinite(skew) ? Math.max(-MAX_HEAD_SKEW, Math.min(MAX_HEAD_SKEW, skew)) : 0;
-    const sx = typeof scaleX === "number" && Number.isFinite(scaleX) ? scaleX : 1;
-    const tail = yaw === 0 && sx === 1 ? "" : ` skewX(${yaw}deg) scaleX(${sx})`;
+  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;
-      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})${tail}`;
+      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
     }
   }
   setBodySwivel(rot, sx, dur) {
@@ -3554,7 +3585,7 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.8.0";
+var CARD_VERSION = "5.8.1";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;

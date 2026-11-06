@@ -25,19 +25,6 @@
 
 import { EYE_CENTER_VARIANTS, EYE_HALO_VARIANTS } from './template.js';
 
-/**
- * Hard clamp on the fake-yaw skew (degrees).
- *
- * The head casing is a rounded 130 px-wide shell inside a 66 px-wide socket
- * cavity (template.js: #rect74 spans x=73..207, the faceplate cavity x=97..163).
- * A skewX of 6 degrees displaces the casing's extreme top/bottom edge by
- * tan(6°) × ~124 px ≈ 13 px, which is inside the 24 px of casing that sits
- * outside the cavity on each side — the silhouette stays whole. Past ~7
- * degrees the leading edge starts to look sheared rather than turned, so 6 is
- * the mechanical limit stop. The verify suite asserts the clamp.
- */
-export const MAX_HEAD_SKEW = 6;
-
 export class AxidosAnimator {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root
@@ -238,26 +225,19 @@ export class AxidosAnimator {
    * pose for many beats, so the browser has nothing to interpolate) is fixed
    * UPSTREAM in choreography.js via the living-hold breath, not here.
    *
-   * 5.8.0 YAW (optional skew/scaleX): a scan can TURN the optic toward a
-   * target instead of only tilting it. The optic is rigidly mounted, so this
-   * is the housing yawing on its pivot — never the eye rotating inside the
-   * socket. Both default to neutral and are APPENDED to the same single
-   * transform string, so the write count per beat is unchanged. skewX is
-   * clamped so the silhouette can never break the socket (see setHead's
-   * caller contract in idle.js and the verify suite's clamp check).
+   * 5.8.1 YAW RETIREMENT — do not reintroduce a shear. 5.8.0 appended an
+   * optional `skewX`/`scaleX` pair here to fake a turn. A shear is the wrong
+   * transform for a lit solid: it leans both vertical edges while the baked
+   * top-light (#ceramicShadow) stays level, and it turns the circular iris into
+   * a tilted ellipse — the eye reads deformation, not rotation. Its one honest
+   * cue (casing foreshortening) is 0.7 px; the shear moved the chin 20.4 px.
+   * A real turn needs pre-painted three-quarter artwork. A scan now uses `rot`
+   * (gimbal), `tx` (rail travel) and the gaze bias in idle.js.
    */
-  setHead(rot, tx, ty, scale = 1.0, dur, ease = 'cubic-bezier(0.34,1.06,0.64,1)', skew = 0, scaleX = 1) {
-    const yaw = (typeof skew === 'number' && Number.isFinite(skew))
-      ? Math.max(-MAX_HEAD_SKEW, Math.min(MAX_HEAD_SKEW, skew)) : 0;
-    const sx = (typeof scaleX === 'number' && Number.isFinite(scaleX)) ? scaleX : 1;
-    // The neutral case must stay BYTE-IDENTICAL to the pre-5.8.0 transform
-    // string: CSS transitions interpolate the parsed value, but a changed
-    // string on an otherwise identical target still re-triggers the write,
-    // and every pose in the phrase library passes skew 0 / scaleX 1.
-    const tail = (yaw === 0 && sx === 1) ? '' : ` skewX(${yaw}deg) scaleX(${sx})`;
+  setHead(rot, tx, ty, scale = 1.0, dur, ease = 'cubic-bezier(0.34,1.06,0.64,1)') {
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;
-      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})${tail}`;
+      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
     }
   }
 

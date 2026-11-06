@@ -124,6 +124,33 @@ export const RASTER_COLS = 4;
 export const RASTER_MAX_X = 6.4;
 export const RASTER_MAX_Y = 3.2;
 
+// ---- Gaze (the scan's directed look) ----
+//
+// 5.8.1: scans used to lean the casing with a `skewX` shear, which distorted it
+// instead of turning it (see animator.js:setHead). The look is carried by the
+// OPTIC now. Budget = socket face r 23 − iris r 17.6 = 5.4 px (socketClip).
+//
+// The bias is set on card._idleGaze, NOT written to setPupil: dartPupil()
+// re-aims on an absolute write every 0.9–3.5 s and would erase a directed gaze
+// within about a second. dartPupil composes its jitter around the bias and
+// clamps the SUM.
+export const GAZE_MAX_PX = 5;
+export const GAZE_BIAS_X = 4;
+export const GAZE_BIAS_Y = 1.5;
+
+/**
+ * Clamp an optic offset to the socket budget. Scales down rather than clipping
+ * per-axis, so the DIRECTION survives (per-axis would bend a diagonal look).
+ */
+export function clampGaze(x, y) {
+  const px = Number.isFinite(x) ? x : 0;
+  const py = Number.isFinite(y) ? y : 0;
+  const mag = Math.hypot(px, py);
+  if (mag <= GAZE_MAX_PX) return { x: px, y: py };
+  const k = GAZE_MAX_PX / mag;
+  return { x: px * k, y: py * k };
+}
+
 /**
  * The complete waypoint sequence for one raster pass. Pure: the same seed
  * always yields the same array (the determinism contract).
