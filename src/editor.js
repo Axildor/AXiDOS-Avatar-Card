@@ -66,6 +66,26 @@ export function buildEditorForm() {
         default: true,
         selector: { boolean: {} },
       },
+      // ── Motion & Flash Safety (5.8.0) ──
+      {
+        name: 'motion_intensity',
+        default: 'full',
+        selector: {
+          select: {
+            mode: 'dropdown',
+            options: [
+              { value: 'full', label: 'Full — mechanical motion, all channels' },
+              { value: 'reduced', label: 'Reduced — removes glitch, strobe and conduit motion' },
+              { value: 'off', label: 'Off — one static frame per state' },
+            ],
+          },
+        },
+      },
+      {
+        name: 'flash_safe',
+        default: true,
+        selector: { boolean: {} },
+      },
       // ── Perf Diagnostics (5.8.0) ──
       {
         name: 'debug_perf',
@@ -220,6 +240,8 @@ export function buildEditorForm() {
         transparent_bg: 'Transparent Background',
         mood_entity: 'Mood Sensor Entity',
         mood_style_enabled: 'Mood-Aware Dance Style',
+        motion_intensity: 'Motion Intensity',
+        flash_safe: 'Flash Safety (max 2 flashes/sec)',
         debug_perf: 'Performance HUD',
         debug_lite: 'Debug: Lite Mode (Freeze Ambient)',
         debug_dprfix: 'Debug: DPR Compositing Fix',
@@ -254,6 +276,8 @@ export function buildEditorForm() {
         transparent_bg: 'Removes the card background, shadow, and border.',
         mood_entity: 'The AX BPM integration\'s dedicated mood sensor (3.3.0+, normally sensor.ax_bpm_mood). Its state is the mood label; its attributes carry the mood scores that steer the dance style. Leave empty to auto-detect sensor.ax_bpm_mood. Do NOT point this at the BPM sensor — mood moved off it in AX BPM 3.3.0.',
         mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
+        motion_intensity: 'How much mechanical motion AXiDOS performs. Full keeps every channel. Reduced REMOVES the stepped glitch, the optic strobe and the conduit compression — it does less work, not slower work. Off composes one static frame per state and schedules nothing. The system setting "Reduce motion" is honoured automatically and can only lower this, never raise it.',
+        flash_safe: 'Keeps every flashing channel at or below 2 flashes per second at all tempos (the red/white optic strobe used to run at ~2.8 Hz at 170 BPM). On by default — leave it on unless you have no photosensitivity concerns in the household.',
         debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
         debug_lite: 'Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only — leave off for normal use.',
         debug_dprfix: 'RETIRED (no-op) since 5.7.0-beta.3: the layer split replaced the single-SVG compositing path this workaround targeted, and it was falsified on the Tab S6 Lite field test. The key is accepted for backward compatibility but does nothing.',

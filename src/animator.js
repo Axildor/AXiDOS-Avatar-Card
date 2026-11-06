@@ -25,6 +25,19 @@
 
 import { EYE_CENTER_VARIANTS, EYE_HALO_VARIANTS } from './template.js';
 
+/**
+ * Hard clamp on the fake-yaw skew (degrees).
+ *
+ * The head casing is a rounded 130 px-wide shell inside a 66 px-wide socket
+ * cavity (template.js: #rect74 spans x=73..207, the faceplate cavity x=97..163).
+ * A skewX of 6 degrees displaces the casing's extreme top/bottom edge by
+ * tan(6°) × ~124 px ≈ 13 px, which is inside the 24 px of casing that sits
+ * outside the cavity on each side — the silhouette stays whole. Past ~7
+ * degrees the leading edge starts to look sheared rather than turned, so 6 is
+ * the mechanical limit stop. The verify suite asserts the clamp.
+ */
+export const MAX_HEAD_SKEW = 6;
+
 export class AxidosAnimator {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root
@@ -91,6 +104,17 @@ export class AxidosAnimator {
     this._lastLedOpacity = null;
     this._lastLidAmount = null;
     this._lastLidDur = null;
+    // Conduit pump guard (5.8.0): amount + duration are BOTH part of the
+    // identity — the dance re-issues the same 0 px release on every offbeat
+    // and the same N px compression on every downbeat, and both writes
+    // (translate3d + transition) must be skipped when neither changes.
+    this._lastBellowsAmount = null;
+    this._lastBellowsDur = null;
+    // LED telemetry class state (5.8.0). ONE class toggle per beat drives a
+    // compositor-animated CSS keyframe sweep; the alternative — writing up to
+    // 24 per-dot custom properties every beat — is 24 style recalcs on a weak
+    // tablet CPU to paint the same picture.
+    this._ledTelemetry = null;
 
     // Mutable visual state (read by bop save/restore, lid loop, etc.)
     this.currentBaseLid = 0;
@@ -183,6 +207,17 @@ export class AxidosAnimator {
     // Reset the fps_max gate anchor: the next motion loop must fire on its
     // first frame, not wait out a budget measured against a stale grid.
     this._lastGate = null;
+    // Guards are per-LIVE-SESSION state. After a teardown the DOM is rebuilt
+    // (config change) or the element re-attached, and the physical conduit /
+    // lid / pupil may well be somewhere else — a surviving guard would then
+    // skip the write that re-asserts them. Never carry them across.
+    this._lastBellowsAmount = null;
+    this._lastBellowsDur = null;
+    this._ledTelemetry = null;
+    this._lastLidAmount = null;
+    this._lastLidDur = null;
+    this._lastPupilX = null;
+    this._lastPupilY = null;
   }
 
   // ---- Motion primitives (1:1 ports of the original initAxidos closures) ----
@@ -202,11 +237,27 @@ export class AxidosAnimator {
    * The separate 5.7.1 "dead bar" problem (a phrase that targets an unchanged
    * pose for many beats, so the browser has nothing to interpolate) is fixed
    * UPSTREAM in choreography.js via the living-hold breath, not here.
+   *
+   * 5.8.0 YAW (optional skew/scaleX): a scan can TURN the optic toward a
+   * target instead of only tilting it. The optic is rigidly mounted, so this
+   * is the housing yawing on its pivot — never the eye rotating inside the
+   * socket. Both default to neutral and are APPENDED to the same single
+   * transform string, so the write count per beat is unchanged. skewX is
+   * clamped so the silhouette can never break the socket (see setHead's
+   * caller contract in idle.js and the verify suite's clamp check).
    */
-  setHead(rot, tx, ty, scale = 1.0, dur, ease = 'cubic-bezier(0.34,1.06,0.64,1)') {
+  setHead(rot, tx, ty, scale = 1.0, dur, ease = 'cubic-bezier(0.34,1.06,0.64,1)', skew = 0, scaleX = 1) {
+    const yaw = (typeof skew === 'number' && Number.isFinite(skew))
+      ? Math.max(-MAX_HEAD_SKEW, Math.min(MAX_HEAD_SKEW, skew)) : 0;
+    const sx = (typeof scaleX === 'number' && Number.isFinite(scaleX)) ? scaleX : 1;
+    // The neutral case must stay BYTE-IDENTICAL to the pre-5.8.0 transform
+    // string: CSS transitions interpolate the parsed value, but a changed
+    // string on an otherwise identical target still re-triggers the write,
+    // and every pose in the phrase library passes skew 0 / scaleX 1.
+    const tail = (yaw === 0 && sx === 1) ? '' : ` skewX(${yaw}deg) scaleX(${sx})`;
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;
-      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
+      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})${tail}`;
     }
   }
 
@@ -247,31 +298,73 @@ export class AxidosAnimator {
   setPupil(px, py) {
     // Redundant-write guard (mirrors setLid/setLedVars): the dance loop can
     // issue setPupil every beat (darts, syncopation accents) and each call
-    // cascades into THREE element writes (pupil, eyeball, bellows) — on a
+    // cascaded into THREE element writes (pupil, eyeball, bellows) — on a
     // weak tablet CPU that is 3 style recalcs per beat for no visual change
     // when the target is identical. Skip the whole cascade when unchanged.
+    //
+    // 5.8.0 DECOUPLING: gaze no longer moves the conduit. The old cascade
+    // wrote #bellows (translate3d + transition) from here, so every pupil
+    // change — dance darts, syncopation accents, idle scanning — compressed
+    // the segmented flex conduit. That is physically wrong: the conduit is in
+    // the vertical TRACK and compresses with RAIL TRAVEL, it is not attached
+    // to the optic. It also cost two extra style writes per pupil change.
+    // The conduit now has exactly ONE writer (setBellows, driven by the
+    // choreography's pump channel), which makes the gaze/conduit decoupling
+    // a verifiable invariant rather than a convention.
     if (px === this._lastPupilX && py === this._lastPupilY) return;
     this._lastPupilX = px;
     this._lastPupilY = py;
     this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
-    const ey = py * 1.5;
-    this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;
-    this._pupilBellowsY = ey;
-    this._applyBellows(0.15);
+    this.el.eyeball.style.transform = `translate3d(0, ${py * 1.5}px, 0)`;
   }
 
   /**
-   * Pump the bellows: amount in px (positive = compress upward). Composes
-   * with the pupil-driven bellows offset so the two don't clobber each other.
+   * Compress the segmented flex CONDUIT (#bellows inside #trackClip).
+   *
+   * `amount` is px of compression (positive = the ribs bunch upward). This is
+   * NOT breathing and NOT a lung: the conduit is the flex column the head
+   * carriage rides on, so it compresses with rail travel and releases as the
+   * carriage settles. One guarded write per beat (full mode only).
+   *
+   * Guard: amount + duration are both part of the identity. The dance issues
+   * N px on the downbeat and 0 px on every offbeat; without the guard that is
+   * two writes on the same element every beat, and the 0 px release would
+   * re-trigger a transition over an already-settled transform.
+   *
+   * `translate3d` rather than `scaleY` on purpose: the conduit is inside a
+   * clipped <g> (#trackClip), and scaling clipped content re-rasterises the
+   * whole rib stack on every write. At 1-5 px of travel the two are visually
+   * indistinguishable and the translation stays on the compositor.
    */
   setBellows(amount, dur = 0.15) {
-    this._bellowsPump = amount;
-    this._applyBellows(dur);
+    if (amount === this._lastBellowsAmount && dur === this._lastBellowsDur) return;
+    this._lastBellowsAmount = amount;
+    this._lastBellowsDur = dur;
+    this.el.bellows.style.transition = `transform ${dur}s ease-out`;
+    this.el.bellows.style.transform = `translate3d(0, ${-amount}px, 0)`;
   }
 
-  _applyBellows(dur) {
-    this.el.bellows.style.transition = `transform ${dur}s ease-out`;
-    this.el.bellows.style.transform = `translate3d(0, ${(this._pupilBellowsY || 0) - (this._bellowsPump || 0)}px, 0)`;
+  /**
+   * LED telemetry class (5.8.0): ONE class toggle per beat. The class drives
+   * a CSS keyframe opacity sweep (template.js) that the compositor animates —
+   * the per-dot alternative is up to 24 custom-property writes per beat.
+   * Guarded: the dance re-asserts the same class every beat.
+   *
+   * COST GATE — this is only acceptable while the class change is rare. The
+   * measurement requirement is recorded in README/CHANGELOG: on the target
+   * tablet, `debug_perf` must show the worst-frame and jank counts unchanged
+   * against the 5.7.2 baseline. If a future beat pattern toggles this class
+   * more than once per beat, it is no longer a compositor animation and the
+   * telemetry must be dropped rather than made per-dot.
+   */
+  setLedTelemetry(mode) {
+    const cls = mode ? `telemetry-${mode}` : null;
+    if (cls === this._ledTelemetry) return;
+    this._ledTelemetry = cls;
+    for (const el of this.ledVarTargets) {
+      el.classList.remove('telemetry-scan', 'telemetry-burst');
+      if (cls) el.classList.add(cls);
+    }
   }
 
   /**

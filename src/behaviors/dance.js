@@ -37,16 +37,34 @@
 import {
   getEnergy, pickNextPhrase, phraseVariant, getBeatPose, hash32,
 } from './choreography.js';
+import {
+  allowsConduit, allowsStrobe, strobeColorAt,
+} from '../motion.js';
 
-// Easing vocabulary (single-write move character):
-//  - Downbeat HIT: overshoot curve — eases past the target then settles.
-//  - Offbeat HIT: fast attack, soft landing.
-//  - FLOW: plain ease-in-out glide.
-// Exported for the verify script's easing-contract assertions.
+// Easing vocabulary (single-write move character) — 5.8.0 SERVO REWRITE.
+//
+// The pre-5.8.0 curves were HUMAN motion: `ease-in-out` and its near relatives
+// accelerate out of rest and decelerate into the target. An actuator does the
+// opposite — it drives hard from the first instant and then STOPS at the limit
+// stop (with a small mechanical settle). These three curves are that
+// vocabulary, and none of them is `ease-in-out`:
+//
+//  hitDown — actuator ramp into a damped settle: fast, near-linear drive with
+//            a touch of overshoot past the stop, then back onto it. The
+//            downbeat lands like a solenoid firing, not like a limb arriving.
+//  hitOff  — hard-stop ramp: maximum drive authority, no cushion. Reads as
+//            precision, not as a softened human offbeat.
+//  flow    — linear actuation: constant-velocity travel along the rail. A
+//            constant rate is exactly what a screw drive does; the previous
+//            ease-in-out glide was the single most "organic" curve in the
+//            dance.
+//
+// Exported for the verify script's easing-contract assertions, and pinned
+// there against any future `ease-in-out` creeping back in.
 export const DANCE_EASINGS = {
-  hitDown: 'cubic-bezier(0.34, 1.4, 0.64, 1)',
-  hitOff: 'cubic-bezier(0.2, 0.9, 0.3, 1)',
-  flow: 'cubic-bezier(0.42, 0, 0.58, 1)',
+  hitDown: 'cubic-bezier(0.16, 0.94, 0.22, 1.02)',
+  hitOff: 'cubic-bezier(0.08, 1, 0.18, 1)',
+  flow: 'linear',
 };
 
 // Tempo-compensated duration beat (5.5.2): move durations scale with the
@@ -65,6 +83,14 @@ const FLOW_EASE = DANCE_EASINGS.flow;
 export function startDanceCycle(card, bpm, mood) {
   const a = card.animator;
   stopDanceCycle(card);
+
+  // Motion policy (5.8.0). state.js resolves the mode (config + the OS
+  // prefers-reduced-motion preference) once per state application and caches
+  // it on the card, so the per-beat path only reads a string.
+  const motionMode = card._motionMode || 'full';
+  const flashSafe = card.config ? card.config.flash_safe !== false : true;
+  const conduitOn = allowsConduit(motionMode);
+  const strobeOn = allowsStrobe(motionMode);
 
   let dancePhase = 0;
   let currentBpm = Math.max(60, Math.min(200, bpm));
@@ -183,16 +209,35 @@ export function startDanceCycle(card, bpm, mood) {
 
     // LED/eye accents (redundant-write guarded — identical values are skipped).
     if (lastLedOpacity !== '1') { a.setLEDs('#1DB954', '1'); lastLedOpacity = '1'; }
-    // Eye halo: peak phrases burn brighter (personality law).
-    const halo = move.halo ? String(move.halo) : '0.5';
+    // LED telemetry (2.8, COST-GATED): ONE class toggle per beat drives a
+    // compositor-animated CSS keyframe sweep. The class only changes at the
+    // phrase boundary (scan for the groove phrases, burst for the peak
+    // phrases), so the per-beat cost is a string comparison that misses.
+    // See animator.setLedTelemetry for the measurement requirement.
+    const telemetry = phraseTelemetry(move);
+    // Guarded so a partial animator (older embedder, test stub) cannot break
+    // the dance: telemetry is polish, never load-bearing.
+    if (typeof a.setLedTelemetry === 'function') a.setLedTelemetry(telemetry);
+    // Eye halo (2.7): FOLLOWS THE ENERGY ENVELOPE CONTINUOUSLY instead of
+    // switching between two constants. The energy curve is already evaluated
+    // for phrase selection, so this is one multiply and one guarded write per
+    // beat — the same write count as before, with a continuous read instead
+    // of a two-state flick. The phrase's own accent (halo) still raises the
+    // floor, so a peak phrase burns brighter at the same energy.
+    const energy = getEnergy(dancePhase, energyBias);
+    const phraseFloor = move.halo ? move.halo : 0.5;
+    const halo = Math.min(1, phraseFloor * (0.62 + 0.38 * Math.min(1, energy)))
+      .toFixed(3);
     if (lastHalo !== halo) { a.el.eyeHalo.style.opacity = halo; lastHalo = halo; }
-    // Strobe (wildest tier-3 phrase): the pupil color toggles EVERY beat —
-    // red on the downbeat, white on the off-beat (legacy red/white strobe).
-    // Non-strobe phrases hold the dance default white. Layer split: these
-    // are variant-stack crossfades (concurrent same-frame opacity swaps) —
-    // no fill transitions inside mover layers.
-    if (move.strobe) {
-      const fill = isDownBeat ? '#ff0000' : '#ffffff';
+    // Strobe (wildest tier-3 phrase): red/white optic toggle. FLASH SAFETY
+    // (3.13): the pre-5.8.0 code toggled on EVERY beat, which at 170 BPM is a
+    // 2.83 Hz flash — above the 2 Hz budget. strobeColorAt() holds each colour
+    // for an integer number of beats so the toggle interval is always
+    // >= 0.5 s regardless of tempo; flash_safe:false restores the legacy
+    // every-beat toggle for users who explicitly opt out. Reduced motion
+    // suppresses the channel entirely (no strobe at all).
+    if (strobeOn && move.strobe) {
+      const fill = strobeColorAt(dancePhase, beatSec, flashSafe);
       if (lastStrobeFill !== fill) { a.setEyeCenterColor(fill); lastStrobeFill = fill; }
     } else if (lastStrobeFill !== null && lastStrobeFill !== '#ffffff') {
       a.setEyeCenterColor('#ffffff');
@@ -208,8 +253,12 @@ export function startDanceCycle(card, bpm, mood) {
     a.setTimeout('dance-led', () => {
       if (card._state === 'dancing') {
         if (lastLedOpacity !== '0.15') { a.setLEDs('#1DB954', '0.15'); lastLedOpacity = '0.15'; }
-        a.el.eyeHalo.style.opacity = '0.05';
-        lastHalo = '0.05';
+        // The halo decays to a floor rather than to a constant zero: with a
+        // continuous energy-linked glow (2.7) the "dark" half of the beat
+        // still has to read as a live optic, so the floor scales with energy.
+        const floor = (0.02 + 0.06 * Math.min(1, getEnergy(dancePhase, energyBias))).toFixed(3);
+        a.el.eyeHalo.style.opacity = floor;
+        lastHalo = floor;
         if (lastEyeScale !== 'scale(1)') { a.el.eyeCenter.style.transform = 'scale(1)'; lastEyeScale = 'scale(1)'; }
       }
     }, beatMs * 0.3);
@@ -242,7 +291,25 @@ export function startDanceCycle(card, bpm, mood) {
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
 
     // Pupil dart accent (seeded from the phrase engine, not Math.random).
+    // Gaze only — since 5.8.0 setPupil no longer touches the conduit.
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
+
+    // CONDUIT COMPRESSION (1.1 — the 5.5.1 removal, re-audited).
+    //
+    // The phrase engine has always returned `pump` (N px on the downbeat, 0 on
+    // every offbeat: `c.isDown ? N : 0`). It was dropped from the execution
+    // path in 5.5.1 "for performance" while the card still repainted its whole
+    // SVG subtree per frame. Since the 5.7.0-beta.3 layer split that repaint
+    // is gone, and the remaining cost is structurally identical to the
+    // already-shipped setBaseLid() call below: one guarded style write per
+    // beat on a `will-change: transform` group inside a clipped <g>.
+    //
+    // There is deliberately NO recovery timer. The offbeat write IS the
+    // release: pump goes N → 0 on the very next beat, and the guard means the
+    // repeated 0 writes cost nothing after the first. Adding a `dance-led`
+    // style timer to "let it spring back" would re-add the second write per
+    // beat that 5.5.1 was actually trying to remove.
+    if (conduitOn) a.setBellows(move.pump, beatSec * 0.5);
 
     // Body swivel (TORSO LAG law): half the head rotation over a LONG
     // ease-in-out sway (3 beats) — the torso lags behind the head like a
@@ -274,6 +341,19 @@ export function startDanceCycle(card, bpm, mood) {
   };
 
   step();
+}
+
+/**
+ * Which LED telemetry class a phrase drives (2.8). Phrase-level, not
+ * beat-level: the class changes only at a phrase boundary, so the per-beat
+ * cost is a compare that misses. `burst` is the peak-phrase read (the
+ * indicator rack pulsing with the hits), `scan` the groove read (a slow
+ * travelling sweep). Null = the resting default.
+ */
+function phraseTelemetry(move) {
+  if (move.strobe) return 'burst';
+  if (move.halo !== undefined && move.halo !== null && Number(move.halo) >= 0.8) return 'burst';
+  return 'scan';
 }
 
 /** Tiny inline mulberry32 for the syncopation dart stream. */
@@ -343,11 +423,17 @@ export function stopDanceCycle(card) {
   // pupil red (each state sets its own fill right after, but be explicit).
   // Layer split: variant-stack crossfade, not a fill write.
   if (a.el.eyeCenter) a.setEyeCenterColor('#ffffff');
+  // LED telemetry (2.8): the sweep class must not outlive the dance — the
+  // idle/processing indicator semantics are set by states.js and a stale
+  // telemetry class would keep animating the rack in a still state.
+  if (typeof a.setLedTelemetry === 'function') a.setLedTelemetry(null);
   // CSS transitions complete on their own — there is no WAAPI animation to
   // cancel and no fill:forwards snap. The head glides to its last target and
   // the next state's setHead() retargets it from there.
-  // Safety net: clear any residual bellows pump (the dance loop no longer
-  // pumps — the bellows only tracks the gaze offset — but a pump value may
-  // survive from a pre-5.5.1 session or a bop path).
+  //
+  // Release the conduit (1.1): the dance is the only writer of #bellows, so
+  // leaving it compressed would strand the flex column mid-travel until the
+  // next dance. This is a TEARDOWN write, not a per-beat recovery timer —
+  // exactly the distinction 5.5.1's "recovery timer" removal failed to make.
   a.setBellows(0, 0.3);
 }

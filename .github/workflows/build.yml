@@ -33,6 +33,9 @@ jobs:
       - name: Verify dance smoothness
         run: node scripts/verify_dance_smoothness.mjs
 
+      - name: Verify mechanical motion (5.8.0)
+        run: node scripts/verify_mechanical_motion.mjs
+
       - name: Commit rebuilt bundle if changed
         if: github.event_name == 'push'
         run: |

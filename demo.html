@@ -319,6 +319,20 @@
       <input type="number" id="cfg-fps-max" min="30" max="240" step="1" value="60">
       <small>Caps the JS motion loops (bop spring, glitch) at this rate. 60 = default; motion looks identical, only the update rate drops.</small>
     </div>
+    <div class="field">
+      <label for="cfg-motion">Motion Intensity</label>
+      <select id="cfg-motion">
+        <option value="full">Full — all mechanical channels</option>
+        <option value="reduced">Reduced — removes glitch, strobe and conduit motion</option>
+        <option value="off">Off — one static frame per state</option>
+      </select>
+      <small>Reduced does LESS work, not slower work. The system "Reduce motion" setting is honoured automatically and can only lower this.</small>
+    </div>
+    <div class="switch-row">
+      <span>Flash Safety (max 2 flashes/sec)</span>
+      <input type="checkbox" id="cfg-flash-safe" checked>
+      <small>Keeps the optic strobe at or below 2 Hz at every tempo. On by default.</small>
+    </div>
 
     <details>
       <summary>Tap / Press Configuration</summary>
@@ -399,6 +413,14 @@ function getStubConfig() {
     progress_dynamic_color: false,
     progress_invert_color: false,
     mood_style_enabled: true,
+    // 5.8.0 motion policy. 'full' keeps every channel (the 5.7.x behaviour);
+    // 'reduced' REMOVES work (no glitch, no optic strobe, no conduit motion);
+    // 'off' composes one static frame per state and schedules nothing.
+    motion_intensity: "full",
+    // 5.8.0 flash safety, default ON: keeps the red/white optic strobe and the
+    // danger-ring pulse at or below 2 Hz at every tempo. Set false to restore
+    // the legacy every-beat toggle.
+    flash_safe: true,
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
@@ -432,6 +454,8 @@ function sanitizeConfig(config) {
   }
   c.mood_style_enabled = c.mood_style_enabled !== false;
   c.mood_entity = typeof c.mood_entity === "string" ? c.mood_entity : "";
+  c.motion_intensity = c.motion_intensity === "reduced" || c.motion_intensity === "off" ? c.motion_intensity : "full";
+  c.flash_safe = c.flash_safe !== false;
   c.debug_perf = c.debug_perf === true;
   c.debug_lite = c.debug_lite === true;
   c.debug_dprfix = c.debug_dprfix === true;
@@ -501,6 +525,26 @@ function buildEditorForm() {
       // ── Mood-Aware Dance Style ──
       {
         name: "mood_style_enabled",
+        default: true,
+        selector: { boolean: {} }
+      },
+      // ── Motion & Flash Safety (5.8.0) ──
+      {
+        name: "motion_intensity",
+        default: "full",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: [
+              { value: "full", label: "Full \u2014 mechanical motion, all channels" },
+              { value: "reduced", label: "Reduced \u2014 removes glitch, strobe and conduit motion" },
+              { value: "off", label: "Off \u2014 one static frame per state" }
+            ]
+          }
+        }
+      },
+      {
+        name: "flash_safe",
         default: true,
         selector: { boolean: {} }
       },
@@ -656,6 +700,8 @@ function buildEditorForm() {
         transparent_bg: "Transparent Background",
         mood_entity: "Mood Sensor Entity",
         mood_style_enabled: "Mood-Aware Dance Style",
+        motion_intensity: "Motion Intensity",
+        flash_safe: "Flash Safety (max 2 flashes/sec)",
         debug_perf: "Performance HUD",
         debug_lite: "Debug: Lite Mode (Freeze Ambient)",
         debug_dprfix: "Debug: DPR Compositing Fix",
@@ -690,6 +736,8 @@ function buildEditorForm() {
         transparent_bg: "Removes the card background, shadow, and border.",
         mood_entity: "The AX BPM integration's dedicated mood sensor (3.3.0+, normally sensor.ax_bpm_mood). Its state is the mood label; its attributes carry the mood scores that steer the dance style. Leave empty to auto-detect sensor.ax_bpm_mood. Do NOT point this at the BPM sensor \u2014 mood moved off it in AX BPM 3.3.0.",
         mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
+        motion_intensity: 'How much mechanical motion AXiDOS performs. Full keeps every channel. Reduced REMOVES the stepped glitch, the optic strobe and the conduit compression \u2014 it does less work, not slower work. Off composes one static frame per state and schedules nothing. The system setting "Reduce motion" is honoured automatically and can only lower this, never raise it.',
+        flash_safe: "Keeps every flashing channel at or below 2 flashes per second at all tempos (the red/white optic strobe used to run at ~2.8 Hz at 170 BPM). On by default \u2014 leave it on unless you have no photosensitivity concerns in the household.",
         debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
         debug_lite: "Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only \u2014 leave off for normal use.",
         debug_dprfix: "RETIRED (no-op) since 5.7.0-beta.3: the layer split replaced the single-SVG compositing path this workaround targeted, and it was falsified on the Tab S6 Lite field test. The key is accepted for backward compatibility but does nothing.",
@@ -830,223 +878,6 @@ function verticalProgressDash(pct) {
   const L = lit / PERIM * 100;
   const G = 100 - 2 * L;
   return `${L.toFixed(2)} ${G.toFixed(2)} ${L.toFixed(2)}`;
-}
-
-// src/behaviors/idle.js
-function scheduleNextLid(card, delayMs) {
-  card.animator.setTimeout("lid-loop", () => lidTick(card), delayMs);
-}
-function lidTick(card) {
-  const a = card.animator;
-  const st = card._state;
-  if (st !== "idle" && st !== "processing") return;
-  if (st === "idle") {
-    const val = Math.max(0, Math.min(1, a.currentBaseLid + (Math.random() - 0.5) * 0.15));
-    a.setLid(val, 0.5 + Math.random() * 0.8);
-    scheduleNextLid(card, 1500 + Math.random() * 2500);
-  } else {
-    const val = 0.5 + Math.random() * 0.35;
-    a.setLid(val, 0.15 + Math.random() * 0.25);
-    scheduleNextLid(card, 120 + Math.random() * 280);
-  }
-}
-function startLidBehavior(card) {
-  stopLidBehavior(card);
-  scheduleNextLid(card, 0);
-}
-function stopLidBehavior(card) {
-  card.animator.clearTimeout("lid-loop");
-}
-var IDLE_BEHAVIORS = [
-  {
-    name: "passive",
-    exec(card, a) {
-      a.setHead(0, 0, 0, 1, 2.4);
-      a.setBaseLid(0, 1);
-      a.resetBodySwivel();
-    },
-    min: 6e3,
-    max: 13e3,
-    weight: 4
-  },
-  {
-    name: "scan_right",
-    exec(card, a) {
-      a.setHead(12, 0, -5, 0.98, 1.4);
-      a.setBaseLid(0, 1);
-      a.setBodySwivel(-2, 1, 1.8);
-    },
-    min: 3500,
-    max: 7e3,
-    weight: 1.5
-  },
-  {
-    name: "scan_left",
-    exec(card, a) {
-      a.setHead(-12, 0, -5, 0.98, 1.4);
-      a.setBaseLid(0, 1);
-      a.setBodySwivel(2, 1, 1.8);
-    },
-    min: 3500,
-    max: 7e3,
-    weight: 1.5
-  },
-  {
-    name: "curious",
-    exec(card, a) {
-      a.setHead(8, 0, -20, 1.05, 1.2);
-      a.setBaseLid(0, 0.8);
-      a.setBodySwivel(-2, 1, 1.6);
-    },
-    min: 4e3,
-    max: 8e3,
-    weight: 2
-  },
-  {
-    name: "contemptuous",
-    exec(card, a) {
-      a.setHead(-6, 0, 15, 0.95, 1.8);
-      a.setBaseLid(0.65, 1);
-      a.setBodySwivel(1.5, 1, 2);
-      a.setTimeout("idle-blink", () => {
-        if (card._state === "idle") a.setBaseLid(0, 1.5);
-      }, 1500);
-    },
-    min: 5e3,
-    max: 1e4,
-    weight: 2
-  },
-  {
-    name: "alert",
-    exec(card, a) {
-      a.setHead(0, 0, -25, 1.08, 0.28);
-      a.setBaseLid(0, 0.2);
-      a.setBodySwivel(-1, 1, 0.4);
-    },
-    min: 1500,
-    max: 3e3,
-    weight: 1
-  },
-  {
-    name: "bored",
-    exec(card, a) {
-      a.setHead(2, 0, 20, 0.96, 2.8);
-      a.setBaseLid(0.7, 1.5);
-      a.setBodySwivel(1, 1, 3);
-      a.setTimeout("idle-blink", () => {
-        if (card._state === "idle") a.setBaseLid(0, 1.5);
-      }, 1500);
-    },
-    min: 7e3,
-    max: 14e3,
-    weight: 1.5
-  },
-  {
-    name: "full_swivel",
-    exec(card, a) {
-      a.setBodySwivel(-6, 0.96, 2.5);
-      a.setTimeout("idle-blink", () => {
-        a.setHead(6, 0, -3, 1.02, 1.2);
-        a.setBaseLid(0, 0.8);
-      }, 600);
-    },
-    min: 4e3,
-    max: 8e3,
-    weight: 0.8
-  },
-  {
-    name: "glitch",
-    exec(card, a) {
-      let count = 0, lastTime = 0;
-      a.cancelRaf("idle-glitch");
-      const glitchLoop = (timestamp) => {
-        if (!lastTime) lastTime = timestamp;
-        if (timestamp - lastTime > 60) {
-          lastTime = timestamp;
-          if (card._state !== "idle" || count > 12) {
-            a.cancelRaf("idle-glitch");
-            if (card._state === "idle") {
-              a.setEyeHaloFill("url(#haloGradIdle)");
-              a.setEyeCenterColor("#ffcc00");
-              a.setHead(0, 0, 0, 1, 0.4);
-            }
-            return;
-          }
-          a.setHead((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, 1, 0.05, "linear");
-          if (count % 2 === 0) {
-            a.setEyeHaloFill("#110000");
-            a.setEyeCenterColor("#884400");
-          } else {
-            a.setEyeHaloFill("#ffb800");
-            a.setEyeCenterColor("#ffffff");
-          }
-          count++;
-        }
-        a.requestRaf("idle-glitch", glitchLoop);
-      };
-      a.requestRaf("idle-glitch", glitchLoop);
-    },
-    min: 4e3,
-    max: 7e3,
-    weight: 0.3
-  }
-];
-function dartPupil(card) {
-  if (card._state === "idle") {
-    const max = 7;
-    card.animator.setPupil((Math.random() - 0.5) * max * 2, (Math.random() - 0.5) * max * 2);
-    card.animator.setTimeout("idle-pupil", () => dartPupil(card), 600 + Math.random() * 2500);
-  }
-}
-function runNextIdleBehavior(card) {
-  if (card._state !== "idle") return;
-  const a = card.animator;
-  let r = Math.random() * IDLE_BEHAVIORS.reduce((s, b) => s + b.weight, 0);
-  let chosen = IDLE_BEHAVIORS[0];
-  for (const b of IDLE_BEHAVIORS) {
-    r -= b.weight;
-    if (r <= 0) {
-      chosen = b;
-      break;
-    }
-  }
-  try {
-    chosen.exec(card, a);
-  } catch (err) {
-  }
-  a.setTimeout("idle-behavior", () => runNextIdleBehavior(card), chosen.min + Math.random() * (chosen.max - chosen.min));
-}
-function startIdleCycle(card) {
-  stopIdleCycle(card);
-  dartPupil(card);
-  card.animator.setTimeout("idle-behavior", () => runNextIdleBehavior(card), 2e3 + Math.random() * 3e3);
-}
-function stopIdleHeadPoses(card) {
-  card.animator.clearTimeout("idle-behavior");
-  card.animator.clearTimeout("idle-blink");
-  card.animator.cancelRaf("idle-glitch");
-}
-function startIdleHeadPoses(card) {
-  if (card._state !== "idle") return;
-  const a = card.animator;
-  try {
-    for (const head of a.el.head) {
-      const t = getComputedStyle(head).transform;
-      if (t && t !== "none") {
-        head.style.transition = "transform 0.6s cubic-bezier(0.34,1.06,0.64,1)";
-        head.style.transform = t;
-      } else {
-        head.style.transition = "";
-      }
-    }
-  } catch (err) {
-  }
-  a.clearTimeout("idle-behavior");
-  a.setTimeout("idle-behavior", () => runNextIdleBehavior(card), 300 + Math.random() * 800);
-}
-function stopIdleCycle(card) {
-  stopIdleHeadPoses(card);
-  card.animator.clearTimeout("idle-pupil");
 }
 
 // src/behaviors/choreography.js
@@ -1755,11 +1586,506 @@ function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
   };
 }
 
+// src/behaviors/mechanical.js
+function stream(seed) {
+  return mulberry32(hash32(seed >>> 0));
+}
+var APERTURE = Object.freeze({
+  narrow: 0.62,
+  // appraisal
+  half: 0.34,
+  // boredom
+  wide: 0.04
+  // alert
+});
+var APERTURE_CYCLE = Object.freeze(["wide", "narrow", "half"]);
+var APERTURE_MIN_HOLD_MS = 4200;
+var APERTURE_MAX_HOLD_MS = 11e3;
+var APERTURE_SNAP_MS_MIN = 150;
+var APERTURE_SNAP_MS_MAX = 260;
+var APERTURE_OVERSHOOT = 0.05;
+function apertureAt(index) {
+  const i = Math.max(0, Math.floor(index) || 0);
+  const r = stream(Math.imul(i + 1, 2654435761));
+  const state = APERTURE_CYCLE[i % APERTURE_CYCLE.length];
+  const lid = APERTURE[state];
+  const snapMs = APERTURE_SNAP_MS_MIN + Math.round(r() * (APERTURE_SNAP_MS_MAX - APERTURE_SNAP_MS_MIN));
+  const holdMs = APERTURE_MIN_HOLD_MS + Math.round(r() * (APERTURE_MAX_HOLD_MS - APERTURE_MIN_HOLD_MS));
+  const stage1 = Math.min(0.98, lid + APERTURE_OVERSHOOT);
+  return { state, lid, stage1, snapMs, holdMs };
+}
+function processingApertureAt(index) {
+  const i = Math.max(0, Math.floor(index) || 0);
+  const r = stream(Math.imul(i + 1, 2246822519));
+  return {
+    lid: 0.45 + r() * 0.4,
+    // narrow band: 0.45..0.85 droop
+    durMs: 120 + Math.round(r() * 160),
+    // 120..280 ms attack
+    nextMs: 120 + Math.round(r() * 280)
+    // 120..400 ms cadence (bounded)
+  };
+}
+var RASTER_ROWS = 3;
+var RASTER_COLS = 4;
+var RASTER_MAX_X = 6.4;
+var RASTER_MAX_Y = 3.2;
+function rasterWaypoints(seed = 0) {
+  const pts = [];
+  for (let row = 0; row < RASTER_ROWS; row++) {
+    const forward = row % 2 === 0;
+    for (let step = 0; step < RASTER_COLS; step++) {
+      const col = forward ? step : RASTER_COLS - 1 - step;
+      const r = stream(
+        (Math.imul(seed + 1, 2654435761) ^ Math.imul(row * RASTER_COLS + step + 1, 3266489917)) >>> 0
+      );
+      const x = (col / (RASTER_COLS - 1) * 2 - 1) * RASTER_MAX_X + (r() - 0.5) * 0.5;
+      const y = (row / (RASTER_ROWS - 1) * 2 - 1) * (RASTER_MAX_Y * 0.6) + (r() - 0.5) * 0.4;
+      pts.push({
+        x: Math.max(-RASTER_MAX_X, Math.min(RASTER_MAX_X, x)),
+        y: Math.max(-RASTER_MAX_Y, Math.min(RASTER_MAX_Y, y)),
+        holdMs: 90 + Math.round(r() * 90)
+      });
+    }
+  }
+  return pts;
+}
+var STATION_KEEP_MAX_R = 0.45;
+var STATION_KEEP_MAX_TX = 0.5;
+var STATION_KEEP_MAX_TY = 0.8;
+var STATION_KEEP_ATTACK_MS_MIN = 160;
+var STATION_KEEP_ATTACK_MS_MAX = 280;
+function stationKeepAt(index) {
+  const i = Math.max(0, Math.floor(index) || 0);
+  const r = stream(Math.imul(i + 1, 668265261));
+  const rDeg = (r() * 2 - 1) * STATION_KEEP_MAX_R;
+  const tx = (r() * 2 - 1) * STATION_KEEP_MAX_TX;
+  const ty = (r() * 2 - 1) * STATION_KEEP_MAX_TY;
+  const durMs = STATION_KEEP_ATTACK_MS_MIN + Math.round(r() * (STATION_KEEP_ATTACK_MS_MAX - STATION_KEEP_ATTACK_MS_MIN));
+  return { r: rDeg, tx, ty, durMs };
+}
+var SERVO_HARD_STOP_EASE = "cubic-bezier(0.12, 1, 0.25, 1)";
+var SERVO_OVERSHOOT = 0.06;
+function servoSnap(a, pose, opts) {
+  const dur = opts && typeof opts.dur === "number" ? opts.dur : 0.34;
+  const ease = opts && opts.ease || "cubic-bezier(0.08, 0.95, 0.12, 1.02)";
+  const settleMs = opts && typeof opts.settleMs === "number" ? opts.settleMs : 140;
+  const name = opts && opts.name || "servo-settle";
+  const over = 1 + SERVO_OVERSHOOT;
+  a.setHead(pose.r * over, pose.tx * over, pose.ty * over, pose.s, dur, ease);
+  a.setTimeout(name, () => {
+    a.setHead(pose.r, pose.tx, pose.ty, pose.s, 0.24, SERVO_HARD_STOP_EASE);
+  }, settleMs);
+}
+
+// src/motion.js
+var MOTION_FULL = "full";
+var MOTION_REDUCED = "reduced";
+var MOTION_OFF = "off";
+function sanitizeMotionIntensity(value) {
+  if (value === MOTION_REDUCED || value === MOTION_OFF) return value;
+  return MOTION_FULL;
+}
+function resolveMotionMode(configIntensity, prefersReduced) {
+  const configured = sanitizeMotionIntensity(configIntensity);
+  if (configured === MOTION_OFF) return MOTION_OFF;
+  if (configured === MOTION_REDUCED || prefersReduced === true) return MOTION_REDUCED;
+  return MOTION_FULL;
+}
+function allowsGlitch(mode) {
+  return mode === MOTION_FULL;
+}
+function allowsStrobe(mode) {
+  return mode === MOTION_FULL;
+}
+function allowsConduit(mode) {
+  return mode === MOTION_FULL;
+}
+function allowsSway(mode) {
+  return mode === MOTION_FULL;
+}
+function allowsBehaviorEngine(mode) {
+  return mode !== MOTION_OFF;
+}
+function apertureHoldScale(mode) {
+  return mode === MOTION_REDUCED ? 1.8 : 1;
+}
+var MIN_STROBE_STEP_SEC = 0.5;
+function strobeStepBeats(beatSec, flashSafe) {
+  if (!(typeof beatSec === "number") || !Number.isFinite(beatSec) || beatSec <= 0) return 2;
+  if (flashSafe === false) return 1;
+  return Math.max(1, Math.ceil(MIN_STROBE_STEP_SEC / beatSec));
+}
+function strobeColorAt(dancePhase, beatSec, flashSafe) {
+  const step = strobeStepBeats(beatSec, flashSafe);
+  const slot = Math.floor(dancePhase / step);
+  return slot % 2 === 0 ? "#ffffff" : "#ff0000";
+}
+
+// src/personality.js
+var SERVO_NEUTRAL = Object.freeze({
+  family: "neutral",
+  aggression: 0.5,
+  apertureBias: 0,
+  paceScale: 1,
+  holdScale: 1
+});
+var SERVO_HIGH = Object.freeze({
+  family: "high",
+  aggression: 1,
+  apertureBias: -0.06,
+  paceScale: 0.82,
+  holdScale: 0.88
+});
+var SERVO_CALM = Object.freeze({
+  family: "calm",
+  aggression: 0.25,
+  apertureBias: 0.1,
+  paceScale: 1.25,
+  holdScale: 1.4
+});
+var SERVO_PROFILES = Object.freeze({
+  neutral: SERVO_NEUTRAL,
+  high: SERVO_HIGH,
+  calm: SERVO_CALM
+});
+function servoPersonality(mood) {
+  if (!mood || mood.present !== true) return SERVO_NEUTRAL;
+  if (mood.tierShift > 0) return SERVO_HIGH;
+  if (mood.tierShift < 0) return SERVO_CALM;
+  if (typeof mood.energyBias === "number" && mood.energyBias > 0.04) return SERVO_HIGH;
+  if (typeof mood.energyBias === "number" && mood.energyBias < -0.04) return SERVO_CALM;
+  return SERVO_NEUTRAL;
+}
+function servoAmplitude(nominal, profile) {
+  const k = profile && typeof profile.aggression === "number" ? profile.aggression : 0.5;
+  return nominal * k;
+}
+function servoHold(ms, profile) {
+  const k = profile && typeof profile.holdScale === "number" ? profile.holdScale : 1;
+  return Math.round(ms * k);
+}
+
+// src/behaviors/idle.js
+function personalityOf(card) {
+  return card._personality || SERVO_NEUTRAL;
+}
+function motionOf(card) {
+  return card._motionMode || "full";
+}
+function scheduleAperture(card, delayMs) {
+  card.animator.setTimeout("lid-loop", () => apertureTick(card), delayMs);
+}
+function apertureTick(card) {
+  const a = card.animator;
+  const st = card._state;
+  if (st !== "idle" && st !== "processing") return;
+  const motion = motionOf(card);
+  const profile = personalityOf(card);
+  if (st === "idle") {
+    const idx = card._apertureIndex || 0;
+    const ap = apertureAt(idx);
+    card._apertureIndex = idx + 1;
+    const bias = profile.apertureBias || 0;
+    const lid = Math.max(0, Math.min(0.95, ap.lid + bias));
+    const stage1 = Math.max(0, Math.min(0.98, lid + (ap.stage1 - ap.lid)));
+    a.setBaseLid(stage1, ap.snapMs / 1e3);
+    a.setTimeout("idle-servo", () => {
+      if (card._state !== "idle") return;
+      a.setBaseLid(lid, 0.09);
+    }, ap.snapMs);
+    const hold = servoHold(ap.holdMs, profile) * apertureHoldScale(motion);
+    scheduleAperture(card, hold);
+  } else {
+    const idx = card._processingAperture || 0;
+    const ap = processingApertureAt(idx);
+    card._processingAperture = idx + 1;
+    a.setBaseLid(Math.max(0, Math.min(0.9, ap.lid + (profile.apertureBias || 0))), ap.durMs / 1e3);
+    scheduleAperture(card, ap.nextMs);
+  }
+}
+function startLidBehavior(card) {
+  stopLidBehavior(card);
+  card._apertureIndex = 0;
+  card._processingAperture = 0;
+  scheduleAperture(card, 0);
+}
+function stopLidBehavior(card) {
+  card.animator.clearTimeout("lid-loop");
+  card.animator.clearTimeout("idle-servo");
+}
+var IDLE_BEHAVIORS = [
+  {
+    name: "passive",
+    // 1.3 STATION-KEEPING instead of an exact rest-pose return.
+    //
+    // The old behavior wrote the literal rest pose (0,0,0) and left it there
+    // for 6–13 s. A suspended mass under load is never exactly at nominal: the
+    // servo hunts. This now issues a run of SUB-DEGREE corrective adjustments
+    // with fast attack and a hard stop, at irregular seeded intervals. It is
+    // still, it is just not DEAD — which is the entire character read.
+    exec(card, a, p) {
+      const start = card._stationKeepIndex || 0;
+      const motion = motionOf(card);
+      const steps = motion === "reduced" ? 2 : 3;
+      for (let k = 0; k < steps; k++) {
+        const idx = start + k;
+        const c = stationKeepAt(idx);
+        const amp = servoAmplitude(1, p);
+        a.setTimeout(`idle-servo-${k}`, () => {
+          if (card._state !== "idle") return;
+          a.setHead(
+            c.r * amp,
+            c.tx * amp,
+            c.ty * amp,
+            1,
+            c.durMs / 1e3,
+            SERVO_HARD_STOP_EASE
+          );
+        }, 320 + k * (900 + idx % 3 * 260));
+      }
+      card._stationKeepIndex = start + steps;
+      a.setBaseLid(a.currentBaseLid, 0.35);
+    },
+    min: 6e3,
+    max: 13e3,
+    weight: 4
+  },
+  {
+    name: "scan_right",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, -5.5, 0.985);
+      a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
+      a.setBodySwivel(-2, 1, 1.6);
+    },
+    min: 4200,
+    max: 8200,
+    weight: 1.5
+  },
+  {
+    name: "scan_left",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(-12 * k, 0, -5 * k, 0.98, 1.1, SERVO_HARD_STOP_EASE, 5.5, 0.985);
+      a.setBaseLid(APERTURE.narrow + (p.apertureBias || 0), 0.22);
+      a.setBodySwivel(2, 1, 1.6);
+    },
+    min: 4200,
+    max: 8200,
+    weight: 1.5
+  },
+  {
+    name: "curious",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(8 * k, 0, -20 * k, 1.05, 0.95, SERVO_HARD_STOP_EASE, -3.5, 1);
+      a.setBaseLid(APERTURE.wide + (p.apertureBias || 0), 0.18);
+      a.setBodySwivel(-2, 1, 1.4);
+    },
+    min: 4e3,
+    max: 8e3,
+    weight: 2
+  },
+  {
+    name: "contemptuous",
+    // The appraisal pose: the aperture pinches down and the housing turns
+    // slightly away. No blink-back timer — the aperture channel owns that.
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(-6 * k, 0, 15 * k, 0.95, 1.4, SERVO_HARD_STOP_EASE, 4.5, 0.98);
+      a.setBaseLid(APERTURE.narrow + 0.06 + (p.apertureBias || 0), 0.2);
+      a.setBodySwivel(1.5, 1, 1.8);
+    },
+    min: 5e3,
+    max: 1e4,
+    weight: 2
+  },
+  {
+    name: "alert",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(0, 0, -25 * k, 1.08, 0.22, SERVO_HARD_STOP_EASE, 0, 1);
+      a.setBaseLid(APERTURE.wide, 0.12);
+      a.setBodySwivel(-1, 1, 0.4);
+    },
+    min: 1500,
+    max: 3e3,
+    weight: 1
+  },
+  {
+    name: "bored",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setHead(2 * k, 0, 20 * k, 0.96, 2.2, SERVO_HARD_STOP_EASE, -2, 1);
+      a.setBaseLid(APERTURE.half, 0.5);
+      a.setBodySwivel(1, 1, 2.6);
+    },
+    min: 7e3,
+    max: 14e3,
+    weight: 1.5
+  },
+  {
+    name: "full_swivel",
+    exec(card, a, p) {
+      const k = servoAmplitude(1, p);
+      a.setBodySwivel(-6, 0.96, 2.2);
+      a.setTimeout("idle-blink", () => {
+        if (card._state !== "idle") return;
+        a.setHead(6 * k, 0, -3 * k, 1.02, 1, SERVO_HARD_STOP_EASE, -4, 0.99);
+        a.setBaseLid(APERTURE.half, 0.3);
+      }, 600);
+    },
+    min: 4e3,
+    max: 8e3,
+    weight: 0.8
+  },
+  {
+    name: "glitch",
+    // Stepped mechanical glitch: discrete 60 ms held frames, no smoothing.
+    // REMOVED ENTIRELY under reduced motion (allowsGlitch) — it is the one
+    // idle channel that is pure flashing, so suppressing it is the whole
+    // point of the reduced mode rather than a slower version of it.
+    exec(card, a, p) {
+      if (!allowsGlitch(motionOf(card))) return;
+      let count = 0, lastTime = 0;
+      a.cancelRaf("idle-glitch");
+      const glitchLoop = (timestamp) => {
+        if (!lastTime) lastTime = timestamp;
+        if (timestamp - lastTime > 60) {
+          lastTime = timestamp;
+          if (card._state !== "idle" || count > 12) {
+            a.cancelRaf("idle-glitch");
+            if (card._state === "idle") {
+              a.setEyeHaloFill("url(#haloGradIdle)");
+              a.setEyeCenterColor("#ffcc00");
+              a.setHead(0, 0, 0, 1, 0.4, SERVO_HARD_STOP_EASE);
+            }
+            return;
+          }
+          a.setHead(
+            (Math.random() - 0.5) * 10,
+            (Math.random() - 0.5) * 8,
+            (Math.random() - 0.5) * 8,
+            1,
+            0.05,
+            "steps(1, end)"
+          );
+          if (count % 2 === 0) {
+            a.setEyeHaloFill("#110000");
+            a.setEyeCenterColor("#884400");
+          } else {
+            a.setEyeHaloFill("#ffb800");
+            a.setEyeCenterColor("#ffffff");
+          }
+          count++;
+        }
+        a.requestRaf("idle-glitch", glitchLoop);
+      };
+      a.requestRaf("idle-glitch", glitchLoop);
+    },
+    min: 4e3,
+    max: 7e3,
+    weight: 0.3
+  }
+];
+function dartPupil(card) {
+  if (card._state !== "idle") return;
+  const a = card.animator;
+  const p = personalityOf(card);
+  const max = 5 * servoAmplitude(1, p);
+  a.setPupil((Math.random() - 0.5) * max * 2, (Math.random() - 0.5) * max * 2);
+  a.setTimeout("idle-pupil", () => dartPupil(card), 900 + Math.random() * 2600);
+}
+function runNextIdleBehavior(card) {
+  if (card._state !== "idle") return;
+  const a = card.animator;
+  const p = personalityOf(card);
+  let r = Math.random() * IDLE_BEHAVIORS.reduce((s, b) => s + b.weight, 0);
+  let chosen = IDLE_BEHAVIORS[0];
+  for (const b of IDLE_BEHAVIORS) {
+    r -= b.weight;
+    if (r <= 0) {
+      chosen = b;
+      break;
+    }
+  }
+  try {
+    chosen.exec(card, a, p);
+  } catch (err) {
+  }
+  const dwell = servoHold(chosen.min + Math.random() * (chosen.max - chosen.min), p);
+  a.setTimeout("idle-behavior", () => runNextIdleBehavior(card), dwell);
+}
+function servoToPose(card, pose, opts) {
+  servoSnap(card.animator, pose, {
+    dur: opts && opts.dur || 0.34,
+    settleMs: opts && opts.settleMs || 150,
+    name: "state-servo"
+  });
+}
+function startIdleCycle(card) {
+  stopIdleCycle(card);
+  card._stationKeepIndex = 0;
+  dartPupil(card);
+  card.animator.setTimeout("idle-behavior", () => runNextIdleBehavior(card), 2e3 + Math.random() * 3e3);
+}
+function stopIdleHeadPoses(card) {
+  card.animator.clearTimeout("idle-behavior");
+  card.animator.clearTimeout("idle-blink");
+  for (let k = 0; k < 3; k++) card.animator.clearTimeout(`idle-servo-${k}`);
+  card.animator.cancelRaf("idle-glitch");
+}
+function startIdleHeadPoses(card) {
+  if (card._state !== "idle") return;
+  const a = card.animator;
+  try {
+    for (const head of a.el.head) {
+      const t = getComputedStyle(head).transform;
+      if (t && t !== "none") {
+        head.style.transition = "transform 0.6s cubic-bezier(0.34,1.06,0.64,1)";
+        head.style.transform = t;
+      } else {
+        head.style.transition = "";
+      }
+    }
+  } catch (err) {
+  }
+  a.clearTimeout("idle-behavior");
+  a.setTimeout("idle-behavior", () => runNextIdleBehavior(card), 300 + Math.random() * 800);
+}
+function stopIdleCycle(card) {
+  stopIdleHeadPoses(card);
+  card.animator.clearTimeout("idle-pupil");
+}
+var RASTER_SEED = 0;
+function startRasterScan(card) {
+  stopRasterScan(card);
+  if (card._state !== "processing") return;
+  const a = card.animator;
+  const p = personalityOf(card);
+  const k = servoAmplitude(1, p);
+  card._rasterIndex = 0;
+  const pts = rasterWaypoints(RASTER_SEED);
+  const step = () => {
+    if (card._state !== "processing") return;
+    const i = card._rasterIndex % pts.length;
+    const pt = pts[i];
+    card._rasterIndex++;
+    a.setPupil(pt.x * k, pt.y * k);
+    a.setTimeout("process-dart", step, pt.holdMs);
+  };
+  a.setTimeout("process-dart", step, 0);
+}
+function stopRasterScan(card) {
+  card.animator.clearTimeout("process-dart");
+}
+
 // src/behaviors/dance.js
 var DANCE_EASINGS = {
-  hitDown: "cubic-bezier(0.34, 1.4, 0.64, 1)",
-  hitOff: "cubic-bezier(0.2, 0.9, 0.3, 1)",
-  flow: "cubic-bezier(0.42, 0, 0.58, 1)"
+  hitDown: "cubic-bezier(0.16, 0.94, 0.22, 1.02)",
+  hitOff: "cubic-bezier(0.08, 1, 0.18, 1)",
+  flow: "linear"
 };
 var DUR_REF_BPM = 110;
 var HIT_DOWN_EASE = DANCE_EASINGS.hitDown;
@@ -1768,6 +2094,10 @@ var FLOW_EASE = DANCE_EASINGS.flow;
 function startDanceCycle(card, bpm, mood) {
   const a = card.animator;
   stopDanceCycle(card);
+  const motionMode = card._motionMode || "full";
+  const flashSafe = card.config ? card.config.flash_safe !== false : true;
+  const conduitOn = allowsConduit(motionMode);
+  const strobeOn = allowsStrobe(motionMode);
   let dancePhase = 0;
   let currentBpm = Math.max(60, Math.min(200, bpm));
   let beatMs = 60 / currentBpm * 1e3;
@@ -1827,13 +2157,17 @@ function startDanceCycle(card, bpm, mood) {
       a.setLEDs("#1DB954", "1");
       lastLedOpacity = "1";
     }
-    const halo = move.halo ? String(move.halo) : "0.5";
+    const telemetry = phraseTelemetry(move);
+    if (typeof a.setLedTelemetry === "function") a.setLedTelemetry(telemetry);
+    const energy = getEnergy(dancePhase, energyBias);
+    const phraseFloor = move.halo ? move.halo : 0.5;
+    const halo = Math.min(1, phraseFloor * (0.62 + 0.38 * Math.min(1, energy))).toFixed(3);
     if (lastHalo !== halo) {
       a.el.eyeHalo.style.opacity = halo;
       lastHalo = halo;
     }
-    if (move.strobe) {
-      const fill = isDownBeat ? "#ff0000" : "#ffffff";
+    if (strobeOn && move.strobe) {
+      const fill = strobeColorAt(dancePhase, beatSec, flashSafe);
       if (lastStrobeFill !== fill) {
         a.setEyeCenterColor(fill);
         lastStrobeFill = fill;
@@ -1853,8 +2187,9 @@ function startDanceCycle(card, bpm, mood) {
           a.setLEDs("#1DB954", "0.15");
           lastLedOpacity = "0.15";
         }
-        a.el.eyeHalo.style.opacity = "0.05";
-        lastHalo = "0.05";
+        const floor = (0.02 + 0.06 * Math.min(1, getEnergy(dancePhase, energyBias))).toFixed(3);
+        a.el.eyeHalo.style.opacity = floor;
+        lastHalo = floor;
         if (lastEyeScale !== "scale(1)") {
           a.el.eyeCenter.style.transform = "scale(1)";
           lastEyeScale = "scale(1)";
@@ -1873,6 +2208,7 @@ function startDanceCycle(card, bpm, mood) {
     const ease = move.flow ? FLOW_EASE : isDownBeat ? HIT_DOWN_EASE : HIT_OFF_EASE;
     a.setHead(move.r, move.tx, move.ty, move.s, moveDur, ease);
     if (move.dart) a.setPupil(move.dart[0], move.dart[1]);
+    if (conduitOn) a.setBellows(move.pump, beatSec * 0.5);
     const swivelRot = move.r * -0.5;
     if (tierIdx >= 2 || lastSwivelRot !== swivelRot) {
       const swivelDur = tierIdx >= 2 ? beatSec * 1.15 : durBeatSec * 3;
@@ -1885,6 +2221,11 @@ function startDanceCycle(card, bpm, mood) {
     executeTick();
   };
   step();
+}
+function phraseTelemetry(move) {
+  if (move.strobe) return "burst";
+  if (move.halo !== void 0 && move.halo !== null && Number(move.halo) >= 0.8) return "burst";
+  return "scan";
 }
 function mulberryFrom(seed) {
   let s = seed >>> 0;
@@ -1915,38 +2256,70 @@ function stopDanceCycle(card) {
   a.clearTimeout("dance-sync");
   delete card._retuneDance;
   if (a.el.eyeCenter) a.setEyeCenterColor("#ffffff");
+  if (typeof a.setLedTelemetry === "function") a.setLedTelemetry(null);
   a.setBellows(0, 0.3);
 }
 
 // src/behaviors/talk.js
-var TALK_MOVES = [
-  { r: -10, tx: -8, ty: -18, s: 1.02, dur: 1.8, lid: 0.1, px: 0, py: -2 },
-  { r: 4, tx: 0, ty: 16, s: 1.08, dur: 1.2, lid: 0.85, px: 0, py: 4 },
-  { r: 2, tx: 0, ty: 10, s: 1.04, dur: 1, lid: 0.5, px: 0, py: 2 },
-  { r: 12, tx: 10, ty: -12, s: 0.96, dur: 2.2, lid: 0.1, px: 0, py: -1 },
-  { r: 0, tx: 0, ty: 25, s: 1.1, dur: 1.8, lid: 0.9, px: 0, py: 5 },
-  { r: -6, tx: 6, ty: -22, s: 0.98, dur: 1, lid: 0.1, px: 0, py: -3 },
-  { r: 4, tx: -3, ty: 6, s: 1.03, dur: 2, lid: 0.4, px: 0, py: 1 },
-  { r: -3, tx: 0, ty: 22, s: 1.15, dur: 1.2, lid: 0.95, px: 0, py: 6 },
-  { r: 6, tx: 3, ty: -6, s: 1, dur: 1.5, lid: 0.2, px: 0, py: 0 }
+var TALK_PHRASES = [
+  // A single clipped nod: the "you are wrong and I am not going to argue".
+  { accent: { r: 3, tx: 0, ty: 9, s: 1.03 }, lid: APERTURE.narrow, holdMs: 2400, attack: 0.16, pupil: [0, 2] },
+  // A slow lean toward the viewer, aperture open: attention.
+  { accent: { r: -4, tx: -3, ty: -7, s: 1.05 }, lid: APERTURE.wide, holdMs: 2e3, attack: 0.28, pupil: [-1, -1] },
+  // A hard lateral snap and back to dead centre: dismissal.
+  { accent: { r: 7, tx: 6, ty: 2, s: 0.99 }, lid: APERTURE.narrow, holdMs: 2800, attack: 0.14, pupil: [3, 0] },
+  // A tiny upward tick: the smallest possible acknowledgement.
+  { accent: { r: 0, tx: 0, ty: -5, s: 1.02 }, lid: APERTURE.half, holdMs: 3200, attack: 0.12, pupil: [0, -2] },
+  // A slow settle downward with a half aperture: "obviously".
+  { accent: { r: -2, tx: 0, ty: 6, s: 1 }, lid: APERTURE.half, holdMs: 2600, attack: 0.3, pupil: [0, 1] }
 ];
+function pickTalkPhrase(previous, index, seed = 0) {
+  const n = TALK_PHRASES.length;
+  if (n <= 1) return 0;
+  const rnd = mulberry32(hash32(
+    (Math.imul(index + 1, 2654435761) ^ Math.imul(previous + 1, 2246822519) ^ seed) >>> 0
+  ));
+  const pool = [];
+  for (let i = 0; i < n; i++) if (i !== previous) pool.push(i);
+  return pool[Math.floor(rnd() * pool.length) % pool.length];
+}
 function startTalkAnim(card) {
   const a = card.animator;
   a.clearTimeout("talk-step");
-  let talkPhase = 0;
+  a.clearTimeout("talk-accent");
+  const p = card._personality;
+  const k = p ? servoAmplitude(1, p) : 1;
+  let index = 0;
+  let previous = -1;
   const step = () => {
-    const m = TALK_MOVES[talkPhase % TALK_MOVES.length];
-    a.setHead(m.r, m.tx, m.ty, m.s, m.dur, "ease-in-out");
-    a.setLid(m.lid, m.dur);
-    a.setPupil(m.px, m.py);
-    a.setBodySwivel(m.r * -0.6, 1, m.dur);
-    talkPhase++;
-    a.setTimeout("talk-step", step, m.dur * 1e3);
+    if (card._state !== "responding") return;
+    const id = pickTalkPhrase(previous, index, card._talkSeed || 0);
+    previous = id;
+    const phrase = TALK_PHRASES[id];
+    const accent = phrase.accent;
+    a.setHead(
+      accent.r * k,
+      accent.tx * k,
+      accent.ty * k,
+      accent.s,
+      phrase.attack,
+      SERVO_HARD_STOP_EASE
+    );
+    a.setBaseLid(phrase.lid, phrase.attack);
+    a.setPupil(phrase.pupil[0] * k, phrase.pupil[1] * k);
+    a.setBodySwivel(accent.r * -0.45, 1, phrase.attack * 2);
+    index++;
+    a.setTimeout("talk-accent", () => {
+      if (card._state !== "responding") return;
+      a.setBaseLid(APERTURE.half, 0.6);
+    }, phrase.holdMs * 0.55);
+    a.setTimeout("talk-step", step, phrase.holdMs);
   };
   step();
 }
 function stopTalkAnim(card) {
   card.animator.clearTimeout("talk-step");
+  card.animator.clearTimeout("talk-accent");
 }
 
 // src/behaviors/spring.js
@@ -2134,15 +2507,27 @@ function stopBop(card) {
 }
 
 // src/states.js
+function resolvePolicies(card, mood) {
+  card._motionMode = resolveMotionMode(
+    card.config ? card.config.motion_intensity : "full",
+    card._prefersReducedMotion === true
+  );
+  card._personality = servoPersonality(mood);
+}
 function resetAll(card) {
   const a = card.animator;
   stopTalkAnim(card);
   stopLidBehavior(card);
   stopIdleCycle(card);
+  stopRasterScan(card);
   stopDanceCycle(card);
   stopBop(card);
   a.el.ledMatrices.forEach((m) => m.classList.remove("pulsing"));
-  if (a.el.dangerRing) a.el.dangerRing.setAttribute("opacity", "0");
+  if (typeof a.setLedTelemetry === "function") a.setLedTelemetry(null);
+  if (a.el.dangerRing) {
+    a.el.dangerRing.setAttribute("opacity", "0");
+    a.el.dangerRing.classList.remove("active");
+  }
   if (a.el.progressRing) a.el.progressRing.setAttribute("opacity", "0");
   a.el.eyeLayerIdle.style.opacity = "0";
   a.el.eyeLayerListen.style.opacity = "0";
@@ -2153,14 +2538,34 @@ function resetAll(card) {
 }
 function applyStateVisuals(card, state, bpm, mood) {
   const a = card.animator;
+  resolvePolicies(card, mood);
+  const motionMode = card._motionMode;
+  const engines = allowsBehaviorEngine(motionMode);
+  const strobeOn = allowsStrobe(motionMode);
   resetAll(card);
+  if (!engines) {
+    a.el.eyeLayerIdle.style.opacity = state === "idle" ? "1" : "0";
+    a.el.eyeLayerListen.style.opacity = state === "listening" ? "1" : "0";
+    a.el.eyeLayerProcess.style.opacity = state === "processing" ? "1" : "0";
+    a.el.eyeLayerRespond.style.opacity = state === "responding" ? "1" : "0";
+    a.el.eyeLayerDance.style.opacity = state === "dancing" ? "1" : "0";
+    a.setEyeHaloFill(stateHaloFill(state));
+    a.el.eyeHalo.style.opacity = "0.05";
+    a.setEyeCenterColor(stateCenterColor(state));
+    a.setLEDs(stateLedColor(state), state === "idle" ? "0.15" : "1");
+    a.setPupil(0, 0);
+    a.setBaseLid(0, 0);
+    if (a.el.dangerRing) a.el.dangerRing.setAttribute("opacity", "0");
+    if (state === "idle") updateProgressRing(card);
+    return;
+  }
   if (state === "idle") {
     a.el.eyeLayerIdle.style.opacity = "1";
     a.el.eyeHalo.style.transition = "opacity 0.8s";
     a.setEyeHaloFill("url(#haloGradIdle)");
     a.el.eyeHalo.style.opacity = "0.05";
     a.setEyeCenterColor("#ffcc00");
-    a.setHead(0, 0, 0, 1, 2.2);
+    servoToPose(card, { r: 0, tx: 0, ty: 0, s: 1 }, { dur: 0.42, settleMs: 180 });
     a.setLid(0, 1.2);
     a.setPupil(0, 0);
     a.currentBaseLid = 0;
@@ -2186,7 +2591,8 @@ function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill("url(#haloGradListen)");
     a.el.eyeHalo.style.opacity = "0.05";
     a.setEyeCenterColor("#aaffff");
-    a.setHead(4, 0, -8, 1.06, 1);
+    servoToPose(card, { r: 4, tx: 0, ty: -8, s: 1.06 }, { dur: 0.3, settleMs: 130 });
+    a.setHead(4, 0, -8, 1.06, 0.3, "cubic-bezier(0.08, 0.95, 0.12, 1.02)", 2.5, 1);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
     a.setLEDs("#00ccff", "1");
@@ -2197,29 +2603,48 @@ function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill("url(#haloGradProcess)");
     a.el.eyeHalo.style.opacity = "0.05";
     a.setEyeCenterColor("#ffddaa");
-    a.setHead(-2, 0, 10, 0.96, 1.4);
+    servoToPose(card, { r: -2, tx: 0, ty: 10, s: 0.96 }, { dur: 0.34, settleMs: 150 });
     a.setBaseLid(0.65, 0.5);
     a.setLEDs("#ff6600", "1");
     a.setBodySwivel(1, 0.98, 1.8);
     a.el.ledMatrices.forEach((m) => m.classList.add("pulsing"));
     startLidBehavior(card);
-    const dart = () => {
-      if (card._state !== "processing") return;
-      a.setPupil((Math.random() - 0.5) * 12, 4);
-      a.setTimeout("process-dart", dart, 200 + Math.random() * 600);
-    };
-    dart();
+    startRasterScan(card);
   } else if (state === "responding") {
     a.el.eyeLayerRespond.style.opacity = "1";
     a.el.eyeHalo.style.transition = "opacity 0.8s";
     a.setEyeHaloFill("url(#haloGradRespond)");
     a.el.eyeHalo.style.opacity = "0.05";
     a.setEyeCenterColor("#ffaaaa");
-    if (a.el.dangerRing) a.el.dangerRing.setAttribute("opacity", "1");
+    if (a.el.dangerRing) {
+      a.el.dangerRing.setAttribute("opacity", "1");
+      if (strobeOn) a.el.dangerRing.classList.add("active");
+    }
     a.setLEDs("#ff2200", "1");
     a.setBodySwivel(0, 1, 0.8);
     startTalkAnim(card);
   }
+}
+function stateHaloFill(state) {
+  if (state === "dancing") return "url(#haloGradDance)";
+  if (state === "listening") return "url(#haloGradListen)";
+  if (state === "processing") return "url(#haloGradProcess)";
+  if (state === "responding") return "url(#haloGradRespond)";
+  return "url(#haloGradIdle)";
+}
+function stateCenterColor(state) {
+  if (state === "listening") return "#aaffff";
+  if (state === "processing") return "#ffddaa";
+  if (state === "responding") return "#ffaaaa";
+  if (state === "dancing") return "#ffffff";
+  return "#ffcc00";
+}
+function stateLedColor(state) {
+  if (state === "listening") return "#00ccff";
+  if (state === "processing") return "#ff6600";
+  if (state === "responding") return "#ff2200";
+  if (state === "dancing") return "#1DB954";
+  return "#ffb800";
 }
 function updateProgressRing(card) {
   const a = card.animator;
@@ -2399,6 +2824,20 @@ function buildTemplate(config) {
       .debug-lite #head-sway-pivot,
       .debug-lite #eye-halo.breathing { animation: none !important; }
 ` : "";
+  const reducedCss = `
+      /* ---- motion_intensity: reduced | prefers-reduced-motion ---- */
+      .motion-reduced #body-pivot,
+      .motion-reduced #head-sway-pivot,
+      .motion-reduced #eye-halo.breathing { animation: none !important; }
+      .motion-reduced #danger-ring.active { animation: none !important; }
+      .motion-reduced .led-matrix.pulsing .led-dot,
+      .motion-reduced .telemetry-scan .led-dot,
+      .motion-reduced .telemetry-burst .led-dot { animation: none !important; }
+      /* Aperture and pose transitions stay, but with NO overshoot: a damped
+         settle is motion sickness for a vestibular-sensitive viewer. */
+      .motion-reduced #axidos-head,
+      .motion-reduced #torso-swivel { transition-timing-function: ease-out !important; }
+`;
   const VB = 'viewBox="0 116 280 320"';
   const SVG_ATTRS = `class="axidos-layer" ${VB} xmlns="http://www.w3.org/2000/svg"`;
   return `
@@ -2462,6 +2901,23 @@ function buildTemplate(config) {
       .led-matrix.pulsing .led-dot { animation: led-pulse 0.9s ease-in-out infinite; }
       @keyframes led-pulse { 0%,100% { opacity: var(--led-opacity); } 50% { opacity: calc(var(--led-opacity) * 0.3); } }
 
+      /* ---- LED telemetry (5.8.0, 2.8) \u2014 COMPOSITOR-ANIMATED ----
+         ONE class toggle per beat on the consumer elements drives these
+         keyframes; the alternative (per-dot custom-property writes, up to 24
+         per beat) is 24 style recalcs on a weak tablet CPU for the same
+         picture. Both sweeps are opacity-only, so they stay on the compositor
+         inside the LED layer.
+         COST GATE: this is only honest while the class changes at most once
+         per beat (it actually changes once per PHRASE). Any future pattern
+         that toggles it faster turns a compositor animation into a
+         style-recalc-per-beat and the telemetry must be dropped, not made
+         per-dot. Measurement requirement: with debug_perf on, worst-frame
+         and jank counts must stay flat against the 5.7.2 baseline. */
+      .telemetry-scan .led-dot { animation: led-telemetry-scan 2.4s linear infinite; }
+      .telemetry-burst .led-dot { animation: led-telemetry-burst 0.6s steps(3, end) infinite; }
+      @keyframes led-telemetry-scan { 0% { opacity: var(--led-opacity); } 45% { opacity: 1; } 100% { opacity: var(--led-opacity); } }
+      @keyframes led-telemetry-burst { 0%,100% { opacity: 1; } 50% { opacity: calc(var(--led-opacity) * 0.25); } }
+
       #body-pivot { transform-origin: 140px 116px; animation: body-sway 8s ease-in-out infinite; }
       @keyframes body-sway { 0%, 100% { transform: rotate(-1.4deg); } 50% { transform: rotate( 1.4deg); } }
 
@@ -2482,9 +2938,16 @@ function buildTemplate(config) {
       .eye-layer { transition: opacity 0.8s ease-in-out; }
       @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
+      /* 13 FLASH SAFETY: the authored .35s cycle is 2.86 Hz \u2014 above the 2 Hz
+         budget the card now ships with (flash_safe defaults ON). The period is
+         retuned to 0.5 s (2 Hz) and the easing made STEPPED: a photosensitivity
+         limit is about the number of luminance transitions per second, and a
+         linear ease ramps through the intermediate values instead of holding
+         the two stable states. steps(1, end) gives exactly one hard transition
+         per half period \u2014 a 2 Hz square flash, not a 2 Hz sine. */
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
-${liteCss}
-      #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
+${liteCss}${reducedCss}
+      #danger-ring.active { animation: danger-flash .5s steps(1, end) infinite; }
 
       /* Idle progress ring: dasharray-driven fill (pathLength=100 \u2192 the dash
          length IS the percentage). Smooth transitions turn sensor jumps into
@@ -2741,6 +3204,7 @@ ${liteCss}
 }
 
 // src/animator.js
+var MAX_HEAD_SKEW = 6;
 var AxidosAnimator = class {
   /**
    * @param {ShadowRoot} shadowRoot - the card's shadow root
@@ -2792,6 +3256,9 @@ var AxidosAnimator = class {
     this._lastLedOpacity = null;
     this._lastLidAmount = null;
     this._lastLidDur = null;
+    this._lastBellowsAmount = null;
+    this._lastBellowsDur = null;
+    this._ledTelemetry = null;
     this.currentBaseLid = 0;
     this.currentLedColor = "#ffb800";
     this.currentLedOpacity = "0.15";
@@ -2863,6 +3330,13 @@ var AxidosAnimator = class {
     this._timers.clear();
     this._rafs.clear();
     this._lastGate = null;
+    this._lastBellowsAmount = null;
+    this._lastBellowsDur = null;
+    this._ledTelemetry = null;
+    this._lastLidAmount = null;
+    this._lastLidDur = null;
+    this._lastPupilX = null;
+    this._lastPupilY = null;
   }
   // ---- Motion primitives (1:1 ports of the original initAxidos closures) ----
   // Transform writes go to ALL copies of a duplicated pivot group (layer
@@ -2880,11 +3354,22 @@ var AxidosAnimator = class {
    * The separate 5.7.1 "dead bar" problem (a phrase that targets an unchanged
    * pose for many beats, so the browser has nothing to interpolate) is fixed
    * UPSTREAM in choreography.js via the living-hold breath, not here.
+   *
+   * 5.8.0 YAW (optional skew/scaleX): a scan can TURN the optic toward a
+   * target instead of only tilting it. The optic is rigidly mounted, so this
+   * is the housing yawing on its pivot — never the eye rotating inside the
+   * socket. Both default to neutral and are APPENDED to the same single
+   * transform string, so the write count per beat is unchanged. skewX is
+   * clamped so the silhouette can never break the socket (see setHead's
+   * caller contract in idle.js and the verify suite's clamp check).
    */
-  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
+  setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)", skew = 0, scaleX = 1) {
+    const yaw = typeof skew === "number" && Number.isFinite(skew) ? Math.max(-MAX_HEAD_SKEW, Math.min(MAX_HEAD_SKEW, skew)) : 0;
+    const sx = typeof scaleX === "number" && Number.isFinite(scaleX) ? scaleX : 1;
+    const tail = yaw === 0 && sx === 1 ? "" : ` skewX(${yaw}deg) scaleX(${sx})`;
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;
-      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})`;
+      el.style.transform = `translate3d(${tx}px,${ty}px,0) rotate(${rot}deg) scale(${scale})${tail}`;
     }
   }
   setBodySwivel(rot, sx, dur) {
@@ -2918,22 +3403,54 @@ var AxidosAnimator = class {
     this._lastPupilX = px;
     this._lastPupilY = py;
     this.el.pupil.style.transform = `translate3d(${px}px, ${py}px, 0)`;
-    const ey = py * 1.5;
-    this.el.eyeball.style.transform = `translate3d(0, ${ey}px, 0)`;
-    this._pupilBellowsY = ey;
-    this._applyBellows(0.15);
+    this.el.eyeball.style.transform = `translate3d(0, ${py * 1.5}px, 0)`;
   }
   /**
-   * Pump the bellows: amount in px (positive = compress upward). Composes
-   * with the pupil-driven bellows offset so the two don't clobber each other.
+   * Compress the segmented flex CONDUIT (#bellows inside #trackClip).
+   *
+   * `amount` is px of compression (positive = the ribs bunch upward). This is
+   * NOT breathing and NOT a lung: the conduit is the flex column the head
+   * carriage rides on, so it compresses with rail travel and releases as the
+   * carriage settles. One guarded write per beat (full mode only).
+   *
+   * Guard: amount + duration are both part of the identity. The dance issues
+   * N px on the downbeat and 0 px on every offbeat; without the guard that is
+   * two writes on the same element every beat, and the 0 px release would
+   * re-trigger a transition over an already-settled transform.
+   *
+   * `translate3d` rather than `scaleY` on purpose: the conduit is inside a
+   * clipped <g> (#trackClip), and scaling clipped content re-rasterises the
+   * whole rib stack on every write. At 1-5 px of travel the two are visually
+   * indistinguishable and the translation stays on the compositor.
    */
   setBellows(amount, dur = 0.15) {
-    this._bellowsPump = amount;
-    this._applyBellows(dur);
-  }
-  _applyBellows(dur) {
+    if (amount === this._lastBellowsAmount && dur === this._lastBellowsDur) return;
+    this._lastBellowsAmount = amount;
+    this._lastBellowsDur = dur;
     this.el.bellows.style.transition = `transform ${dur}s ease-out`;
-    this.el.bellows.style.transform = `translate3d(0, ${(this._pupilBellowsY || 0) - (this._bellowsPump || 0)}px, 0)`;
+    this.el.bellows.style.transform = `translate3d(0, ${-amount}px, 0)`;
+  }
+  /**
+   * LED telemetry class (5.8.0): ONE class toggle per beat. The class drives
+   * a CSS keyframe opacity sweep (template.js) that the compositor animates —
+   * the per-dot alternative is up to 24 custom-property writes per beat.
+   * Guarded: the dance re-asserts the same class every beat.
+   *
+   * COST GATE — this is only acceptable while the class change is rare. The
+   * measurement requirement is recorded in README/CHANGELOG: on the target
+   * tablet, `debug_perf` must show the worst-frame and jank counts unchanged
+   * against the 5.7.2 baseline. If a future beat pattern toggles this class
+   * more than once per beat, it is no longer a compositor animation and the
+   * telemetry must be dropped rather than made per-dot.
+   */
+  setLedTelemetry(mode) {
+    const cls = mode ? `telemetry-${mode}` : null;
+    if (cls === this._ledTelemetry) return;
+    this._ledTelemetry = cls;
+    for (const el of this.ledVarTargets) {
+      el.classList.remove("telemetry-scan", "telemetry-burst");
+      if (cls) el.classList.add(cls);
+    }
   }
   /**
    * Freeze all in-flight head/torso motion so a tap bop owns the head
@@ -3037,7 +3554,7 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.7.2";
+var CARD_VERSION = "5.8.0";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;
@@ -3205,6 +3722,10 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassProgress = null;
     this._lastHassMood = null;
     this._moodWarned = false;
+    this._prefersReducedMotion = false;
+    this._motionQuery = null;
+    this._motionMode = "full";
+    this._personality = null;
     this._progressPct = null;
     this._state = "idle";
     this._currentBpm = 120;
@@ -3304,11 +3825,67 @@ var AxidosCard = class extends HTMLElement {
       });
     }
   }
+  /**
+   * Observe `prefers-reduced-motion` and keep `_prefersReducedMotion` current
+   * (5.8.0). Called on every connect so a mid-session OS change takes effect
+   * on the next state application.
+   *
+   * There is deliberately no listener teardown in disconnectedCallback: the
+   * MediaQueryList is a single shared object, `addEventListener` dedupes the
+   * bound handler, and the handler is a no-op when `!this.isConnected`. That
+   * is cheaper and safer than tracking a listener lifecycle across HA's
+   * detach/re-attach dance (which would leak on any missed path).
+   */
+  _setupMotionPreference() {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    if (this._motionQuery) {
+      this._prefersReducedMotion = this._motionQuery.matches === true;
+      return;
+    }
+    try {
+      this._motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    } catch (err) {
+      return;
+    }
+    this._prefersReducedMotion = this._motionQuery.matches === true;
+    this._motionHandler = () => {
+      if (!this.isConnected || !this._motionQuery) return;
+      this._prefersReducedMotion = this._motionQuery.matches === true;
+      if (this.contentReady) {
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
+        this._applyMotionClass();
+      }
+    };
+    if (typeof this._motionQuery.addEventListener === "function") {
+      this._motionQuery.addEventListener("change", this._motionHandler);
+    } else if (typeof this._motionQuery.addListener === "function") {
+      this._motionQuery.addListener(this._motionHandler);
+    }
+  }
+  /**
+   * Project the resolved motion mode onto the DOM as a class on #scene.
+   * This is the last mile of the reduced-motion CSS (template.js): the CSS
+   * cannot know the config half of the decision, and the mode must be able to
+   * react to a config change without a rebuild.
+   */
+  _applyMotionClass() {
+    if (!this.shadowRoot) return;
+    const scene = this.shadowRoot.getElementById("scene");
+    if (!scene) return;
+    const mode = resolveMotionMode(
+      this.config ? this.config.motion_intensity : "full",
+      this._prefersReducedMotion === true
+    );
+    this._motionMode = mode;
+    scene.classList.toggle("motion-reduced", mode !== "full");
+    this._setSwayPaused(allowsSway(mode) ? "" : "paused");
+  }
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
   connectedCallback() {
     if (this._boundVisibility) {
       document.addEventListener("visibilitychange", this._boundVisibility);
     }
+    this._setupMotionPreference();
     this._setupOffscreenPause();
     if (this.contentReady && this.config?.debug_perf === true && !this.perf) {
       this.perf = new PerfMonitor(this.shadowRoot, this.config);
@@ -3335,6 +3912,7 @@ var AxidosCard = class extends HTMLElement {
         });
       });
       if (this._state) {
+        this._applyMotionClass();
         applyState(this, this._state, this._currentBpm, this._currentMood);
       }
     }
@@ -3382,6 +3960,7 @@ var AxidosCard = class extends HTMLElement {
     if (this.config.debug_perf === true) {
       this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
+    this._applyMotionClass();
   }
   initAxidos() {
     this.animator = new AxidosAnimator(this.shadowRoot, this.config?.fps_max ?? 60);
@@ -3474,6 +4053,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
     respond_delay: 0,
     zoom: 85,
     transparent_bg: false,
+    motion_intensity: 'full',
+    flash_safe: true,
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
@@ -3690,6 +4271,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
     $('cfg-lite').checked = currentConfig.debug_lite === true;
     $('cfg-dprfix').checked = currentConfig.debug_dprfix === true;
     $('cfg-fps-max').value = currentConfig.fps_max ?? 60;
+    $('cfg-motion').value = currentConfig.motion_intensity || 'full';
+    $('cfg-flash-safe').checked = currentConfig.flash_safe !== false;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -3722,6 +4305,8 @@ if (!window.customCards.some((c) => c.type === "axidos-card")) {
       debug_lite: $('cfg-lite').checked,
       debug_dprfix: $('cfg-dprfix').checked,
       fps_max: parseInt($('cfg-fps-max').value, 10) || 60,
+      motion_intensity: $('cfg-motion').value,
+      flash_safe: $('cfg-flash-safe').checked,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),

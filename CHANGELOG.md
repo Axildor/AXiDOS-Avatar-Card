@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.8.0
+
+### She Moves Like the Machine She Is
+
+This release is about how AXiDOS moves, and about giving you control over it. Nothing here makes her more human — every change pushes the other way. She is a suspended mechanical assembly: no eyelids, no lungs, no drift. She now reads as *switched on and watching you* rather than as a still image that occasionally jumps.
+
+* **The conduit in her spine compresses with the beat** — the segmented flex column running down her track now bunches and releases as her head carriage travels, on every downbeat. This was turned off in 5.5.1 to save CPU, back when the card still repainted its whole artwork every frame. That bottleneck was removed in 5.7.0, so it is back where it belongs. The release is immediate — no spring-back timer — and re-releasing an already-released conduit costs the browser nothing.
+* **Gaze no longer moves the conduit** — a bug fix with a visible effect. Looking around used to compress her spine, which is physically wrong: the conduit is in the vertical track and has nothing to do with where she is looking. It now has exactly one cause, and every pupil movement is cheaper for it.
+* **Her iris works as an aperture, not an eyelid** — the idle optic no longer jitters randomly between near-open positions. It snaps between three deliberate states: narrowed (appraising you), half (nothing to do), and wide (alert). Each change is a two-stage mechanical snap — a fast drive, then a settle onto the limit stop — with long, uneven holds in between. She is still far more often than she moves; the stillness is the point.
+* **She holds station instead of going slack** — at rest her head no longer locks at exactly neutral and waits. It makes tiny sub-degree corrections, fast and hard-stopped, at irregular intervals: the servo holding a suspended mass against its load.
+* **Her dance moves are driven, not swayed** — the dance easing curves were human motion (accelerate gently, ease into the target). They are now actuator motion: a hard drive into a damped settle on hits, and constant-velocity travel on glides, as if on a screw drive.
+* **Looking, not just tilting** — her side-to-side idle scans now turn the whole housing slightly toward the target, clamped so the silhouette never shears past the socket. She looks along the rail.
+* **Processing looks like work** — the random pupil darts during the processing state are replaced with a deterministic raster sweep: left to right, right to left, three rows, reading the room like a scanner reads lines. Same sweep every time, which is what makes it read as machinery.
+* **Her optic glow follows the music's energy** — the halo brightness is no longer two fixed values that flick between each other. It tracks the dance's energy envelope continuously, so the light rises and falls with the song instead of toggling.
+* **The indicator LEDs now report what she is doing** — a slow travelling sweep while she dances, a faster pulse on peak phrases. This is done with one CSS class per phrase, animated on the GPU, not with per-dot JavaScript.
+* **Talking is deadpan** — the responding animation is rebuilt from a fixed 9-pose loop into seeded phrases: one sharp accent, then a long hold, never the same phrase twice in a row. It is deliberately cheaper than what it replaced — fewer writes, longer pauses.
+* **Her mood reaches her posture, not just her dance** — the mood sensor used to steer only the dance, so a relaxed track could dance calmly while her idle posture snapped around. A single shared servo-aggression profile now drives both, so she cannot contradict her own character.
+
+### Reduced Motion and Flash Safety
+
+* **New `motion_intensity` option — `full`, `reduced` or `off`.** Reduced does **less work, not slower work**: the stepped glitch, the red/white optic strobe and the conduit compression are all removed outright, and the ambient sway and LED sweeps stop. `off` composes a single static frame per state and schedules nothing at all.
+* **Your system's "Reduce motion" setting is honoured automatically.** It can only ever lower the setting, never raise it, and an explicit `off` is never overridden. If you change the OS setting while the dashboard is open, the card rebuilds and picks it up without a reload.
+* **New `flash_safe` option, on by default.** The red/white optic strobe used to toggle on every beat, which at 170 BPM is 2.8 flashes per second. It is now held for a whole number of beats so the rate never exceeds 2 flashes per second at any tempo, and the red danger-ring pulse is retuned from 2.86 Hz to a stepped 2 Hz. Set `flash_safe: false` to restore the old every-beat strobe — but it is on by default because an opt-in would leave existing users exposed to a strobe they never agreed to.
+* **State changes are servo-driven** — switching state no longer hard-cuts her into the new pose. The head is driven onto it with a short overshoot and a settle, which is what an actuator does at a limit stop.
+
 ## 5.7.2
 
 ### Every Mood Now Steers Her

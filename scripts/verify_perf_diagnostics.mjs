@@ -356,7 +356,15 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
   // debug_lite OFF (default): no freeze class, no freeze rules.
   const tOff = buildTemplate({ zoom: 85 });
   assert(!tOff.includes('debug-lite'), 'debug_lite off → no debug-lite class in template');
-  assert(!tOff.includes('animation: none'), 'debug_lite off → no freeze rules in template');
+  // The assertion is scoped to the debug_lite SELECTORS, not the substring
+  // "animation: none": since 5.8.0 the template also carries an unconditional
+  // .motion-reduced block (the reduced-motion CSS must exist even when the
+  // debug flag is off — the card toggles the class at runtime). The invariant
+  // that actually matters is that NO rule is keyed on .debug-lite unless the
+  // flag is on.
+  assert(!/\.debug-lite\b/.test(tOff), 'debug_lite off → no .debug-lite freeze rules in template');
+  assert(tOff.includes('.motion-reduced #body-pivot'),
+    'debug_lite off → the 5.8.0 reduced-motion CSS is still present (it is runtime-toggled, not config-gated)');
   // debug_lite ON: class ATTRIBUTE on #scene + freeze rules for both sway
   // pivots. (5.7.0-beta.2 fix: beta.1 emitted <div id="scene debug-lite"> —
   // the class was interpolated INTO the id, which broke every #scene rule.)
@@ -392,7 +400,7 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
     mon._renderHud();
     const txt = mon._hud.textContent;
     assert(txt.includes(`build: ${CARD_VERSION}`), `HUD echoes the build version (${CARD_VERSION})`);
-    assert(CARD_VERSION === '5.7.2', `version.js is the 5.7.2 stable build (${CARD_VERSION})`);
+    assert(CARD_VERSION === '5.8.0', `version.js is the 5.8.0 stable build (${CARD_VERSION})`);
     assert(/dpr: \d/.test(txt), 'HUD shows live dpr');
     // dprfix retired (A2): the HUD shows "retired (no-op)" for a stale
     // config so the tester can identify it on the tablet.

@@ -27,6 +27,14 @@ export function getStubConfig() {
     progress_dynamic_color: false,
     progress_invert_color: false,
     mood_style_enabled: true,
+    // 5.8.0 motion policy. 'full' keeps every channel (the 5.7.x behaviour);
+    // 'reduced' REMOVES work (no glitch, no optic strobe, no conduit motion);
+    // 'off' composes one static frame per state and schedules nothing.
+    motion_intensity: 'full',
+    // 5.8.0 flash safety, default ON: keeps the red/white optic strobe and the
+    // danger-ring pulse at or below 2 Hz at every tempo. Set false to restore
+    // the legacy every-beat toggle.
+    flash_safe: true,
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
@@ -82,6 +90,18 @@ export function sanitizeConfig(config) {
   // opportunistically adopts 'sensor.ax_bpm_mood' at delivery time when it
   // exists, because whether that entity exists is hass state, not config.
   c.mood_entity = typeof c.mood_entity === 'string' ? c.mood_entity : '';
+  // Motion policy (5.8.0). Unknown values fall back to 'full', so an older
+  // config (or a typo) can never accidentally freeze the card. The OS
+  // prefers-reduced-motion preference is applied on top of this at delivery
+  // time (axidos-card.js owns the matchMedia listener), never here — a config
+  // file cannot observe a device preference.
+  c.motion_intensity = (c.motion_intensity === 'reduced' || c.motion_intensity === 'off')
+    ? c.motion_intensity : 'full';
+  // Flash safety (5.8.0): DEFAULT ON. `!== false` keeps every pre-5.8.0
+  // config (which lacks the key) on the safe path, which is the correct
+  // direction for a photosensitivity control — an opt-in would leave existing
+  // users exposed to the 2.8 Hz strobe they never agreed to.
+  c.flash_safe = c.flash_safe !== false;
   // Perf diagnostics (5.8.0): opt-in on-card performance HUD (FPS, jank
   // frames, beat-timer lateness) for devices without console access
   // (Android WebView / View Assist Companion App). Default OFF — zero cost

@@ -319,6 +319,20 @@
       <input type="number" id="cfg-fps-max" min="30" max="240" step="1" value="60">
       <small>Caps the JS motion loops (bop spring, glitch) at this rate. 60 = default; motion looks identical, only the update rate drops.</small>
     </div>
+    <div class="field">
+      <label for="cfg-motion">Motion Intensity</label>
+      <select id="cfg-motion">
+        <option value="full">Full — all mechanical channels</option>
+        <option value="reduced">Reduced — removes glitch, strobe and conduit motion</option>
+        <option value="off">Off — one static frame per state</option>
+      </select>
+      <small>Reduced does LESS work, not slower work. The system "Reduce motion" setting is honoured automatically and can only lower this.</small>
+    </div>
+    <div class="switch-row">
+      <span>Flash Safety (max 2 flashes/sec)</span>
+      <input type="checkbox" id="cfg-flash-safe" checked>
+      <small>Keeps the optic strobe at or below 2 Hz at every tempo. On by default.</small>
+    </div>
 
     <details>
       <summary>Tap / Press Configuration</summary>
@@ -395,6 +409,8 @@
     respond_delay: 0,
     zoom: 85,
     transparent_bg: false,
+    motion_intensity: 'full',
+    flash_safe: true,
     debug_perf: false,
     debug_lite: false,
     debug_dprfix: false,
@@ -611,6 +627,8 @@
     $('cfg-lite').checked = currentConfig.debug_lite === true;
     $('cfg-dprfix').checked = currentConfig.debug_dprfix === true;
     $('cfg-fps-max').value = currentConfig.fps_max ?? 60;
+    $('cfg-motion').value = currentConfig.motion_intensity || 'full';
+    $('cfg-flash-safe').checked = currentConfig.flash_safe !== false;
     $('cfg-tap-enabled').checked = currentConfig.tap_enabled !== false;
     $('cfg-tap-action').value = currentConfig.tap_action?.action || 'none';
     $('cfg-tap-speed').value = currentConfig.tap_speed ?? 0.5;
@@ -643,6 +661,8 @@
       debug_lite: $('cfg-lite').checked,
       debug_dprfix: $('cfg-dprfix').checked,
       fps_max: parseInt($('cfg-fps-max').value, 10) || 60,
+      motion_intensity: $('cfg-motion').value,
+      flash_safe: $('cfg-flash-safe').checked,
       tap_enabled: $('cfg-tap-enabled').checked,
       tap_action: { action: $('cfg-tap-action').value },
       tap_speed: parseFloat($('cfg-tap-speed').value),

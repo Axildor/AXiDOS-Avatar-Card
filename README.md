@@ -17,7 +17,7 @@ She tracks your voice assistant's state in real-time, features a randomized idle
 ## ✨ Features
 
 * **Real-time State Tracking:** Seamlessly transitions between Idle, Listening (Blue), Processing (Orange/Pulsing), and Responding (Red/Talking).
-* **Organic Idle Engine:** Uses a weighted randomizer to cycle through various idle animations (swaying, looking around, glitching, getting bored) so she never looks robotic or looped.
+* **Mechanical Idle Engine:** A weighted scheduler cycles her between mechanical behaviors — station-keeping corrections, aperture changes, rail scans, the occasional stepped glitch. She is deliberately a machine at rest: the optic is an iris aperture that snaps between states, not an eyelid that blinks, and stillness is treated as character rather than as a bug. See [Her Motion Model](#-her-motion-model).
 * **Performance Optimized:** Uses GPU-accelerated CSS `transform` and `opacity` properties, with bloom effects pre-baked as SVG gradients instead of runtime filters. Internal state-caching and garbage collection ensure zero memory leaks and negligible CPU drain.
 * **Visual UI Editor:** Fully supports Home Assistant's visual card editor. No YAML configuration required!
 * **Response Delay Timer:** Configurable delay to keep her in the "Processing" state a little longer before she starts talking, giving your TTS engine time to catch up.
@@ -31,9 +31,10 @@ Instead of a basic looped animation, she features a **Phrase-Graph Choreography 
 Her movement is built from composable layers, the same way a real puppeteer works:
 * **Compositor Moves** — every pose change is a single declarative CSS transition that the browser interpolates on the GPU, so the dance stays butter-smooth even on modest tablet hardware. Snappy moves land inside the beat with an overshoot curve; flowing moves glide across beats.
 * **Physical Laws** — every move obeys her anatomy: she *dips into* the downbeat (gravity), her head swings in an arc rather than sliding sideways (pendulum), her torso swivel lags behind the head like a slow groove, and direction reversals land exactly on the beat (mechanical precision).
-* **Living Holds** — when a move deliberately parks her in one attitude for a whole bar (the *strobe slam* finale, the chill *settle rest*), she keeps breathing in place — a small vertical rise with a softening eyelid — so a held pose never reads as a frozen frame.
-* **Choreographed Handoffs** — the last 3 beats of every phrase glide toward the next phrase's entry pose, so style switches read as deliberate transitions, not pose teleports.
-* **Breathing** — her bellows compresses on the downbeat dip and releases on the rise — she breathes *with* the beat.
+* **Living Holds** — when a move deliberately parks her in one attitude for a whole bar (the *strobe slam* finale, the chill *settle rest*), she keeps moving in place — a small vertical rise with an aperture accent — so a held pose never reads as a frozen frame.
+* **Hard Cuts at the Bar** — phrase switches land exactly on the bar boundary with no pre-blend. The cut itself is what reads as a new move.
+* **Conduit Compression** — the segmented flex conduit in her vertical track bunches on the downbeat as her head carriage travels, and releases on the off-beat. It compresses with rail travel; it is not a lung and it does not breathe. Every beat issues one guarded write, and the off-beat release *is* the spring-back — there is no recovery timer.
+* **Actuator Easing** — every move is driven, not swayed: hits ramp into a damped settle at the limit stop, glides travel at constant velocity like a screw drive. No human `ease-in-out` survives anywhere in the dance.
 
 Her personality shifts depending on the speed of the music:
 * **Chill & Soulful (< 90 BPM):** Relaxed but clearly moving — per-beat sways and bobs (*quad tilt*, *vertical bob*, *sway bob*, *slow arc*) with soft beat-landing hits, downbeat pupil darts, and heavy eyelids. Calmer than the groovy tier, never static. Move durations are floored at a reference tempo, so her moves travel at a lively speed even on slow songs instead of crawling in slow motion.
@@ -48,6 +49,24 @@ When you configure a mood sensor (the **AX-BPM** integration 3.3.0+ provides one
 * The mood also biases her verse/chorus energy (relaxed keeps the wildest phrases out of rotation) and her eyelids (relaxed = sleepier droop, party/aggressive = wide awake).
 * The beat stays locked to the music's true BPM — only the movement vocabulary changes. Weak or ambiguous mood classifications stay neutral, and without a mood sensor her dance is unchanged.
 * Set the **Mood Sensor Entity** to the AX BPM mood sensor (e.g. `sensor.ax_bpm_mood`) in the visual editor. Disable the feature with the **Mood-Aware Dance Style** toggle (default on).
+
+### 🔩 Her Motion Model
+
+AXiDOS is a suspended mechanical assembly. Every animation decision is made to serve that, and organic-animation ideas are deliberately rejected:
+
+* **No eyelids.** The optic is an **iris aperture**. It has no blink, no squint and no lid drift. At rest it snaps between three deliberate states — *narrow* (appraisal), *half* (boredom) and *wide* (alert) — with a two-stage drive: a fast attack past the limit stop, then a settle back onto it. Holds are long and uneven; she is still far more often than she moves.
+* **No lungs.** `#bellows` is the **segmented flex conduit** in the vertical track. It compresses as the head carriage travels the rail. It does not breathe, and it is not attached to her gaze — pupil movement never moves it.
+* **The optic is rigidly mounted.** No saccadic drift, no pupil drag, no eyes-leading-head. Gaze and housing are separate actuators.
+* **Station-keeping, not idleness.** At rest her head makes sub-degree corrective adjustments — fast attack, hard stop, irregular intervals — the way a servo holds a suspended mass against its load. There is no organic wander.
+* **Hold, then snap.** Precision is the character: poses are held exactly, then released in one driven move onto the next setpoint.
+* **The pause is the performance.** Holds dominate the vocabulary, in the dance and in the talking animation alike.
+
+### ⚡ Accessibility
+
+* **`motion_intensity: reduced`** removes the stepped glitch, the optic strobe, the conduit compression, the ambient sway and the LED sweeps. It performs *less work*, not slower work, so reduced motion is also the cheaper mode.
+* **`prefers-reduced-motion`** is honoured automatically: the card reads the system preference and can only ever lower the setting. A mid-session OS change is picked up without a reload.
+* **`motion_intensity: off`** composes one static frame per state and schedules nothing at all.
+* **`flash_safe`** (on by default) caps every flashing channel at 2 flashes per second at any tempo.
 
 ### ⚠️ Prerequisite for Dancing
 For AXiDOS to sync her movements to the beat, **she needs to know the BPM of the currently playing song**. 
@@ -102,7 +121,9 @@ tap_action:
 | `progress_vertical_fill` | boolean | Optional | Fills both sides of the ring from the bottom up — at 50% both sides stand at half height, at 100% the whole socket is lit. Default is `true`. Set to `false` for the original 360° clockwise sweep from the bottom. |
 | `progress_show_in_dance` | boolean | Optional | Keep the progress ring visible while AXiDOS is dancing. Default is `true`. Set to `false` for the idle-only ring. |
 | `mood_entity` | string | Optional | The AX BPM integration's dedicated mood sensor (3.3.0+, e.g. `sensor.ax_bpm_mood`). Its state is the mood label; its attributes carry the mood scores. Leave empty to auto-detect `sensor.ax_bpm_mood`. Do **not** point this at the BPM sensor — mood moved off it in AX BPM 3.3.0, and a warning is logged if you do. |
-| `mood_style_enabled` | boolean | Optional | Let the mood sensor steer the dance style. All five moods steer: `relaxed`/`acoustic` use calmer, sleepier moves at any tempo; `aggressive`/`party`/`electronic` use wilder, wide-awake ones. Requires `mood_entity` (AX-BPM 3.3.0+). Default is `true`. |
+| `mood_style_enabled` | boolean | Optional | Let the mood sensor steer the dance style. All five moods steer: `relaxed`/`acoustic` use calmer, sleepier moves at any tempo; `aggressive`/`party`/`electronic` use wilder, wide-awake ones. The same mood also sets her idle servo-aggression, so her resting posture can never contradict the dance. Requires `mood_entity` (AX-BPM 3.3.0+). Default is `true`. |
+| `motion_intensity` | string | Optional | `full`, `reduced` or `off`. **`full`** runs every channel. **`reduced`** does *less work, not slower work*: the stepped glitch, the optic strobe, the conduit compression, the ambient sway and the LED sweeps are all removed outright. **`off`** composes one static frame per state and schedules nothing at all. Your system's "Reduce motion" preference is honoured automatically and can only lower this, never raise it. Default is `full`. |
+| `flash_safe` | boolean | Optional | Keeps every flashing channel at or below 2 flashes per second at every tempo — the red/white optic strobe used to toggle on every beat (2.8 Hz at 170 BPM) and the red danger-ring pulse ran at 2.86 Hz. Toggle steps and the ring period are now retuned so the rate never exceeds 2 Hz. Default is `true`; set to `false` only to restore the legacy every-beat strobe. |
 | `debug_perf` | boolean | Optional | Shows a small overlay on the card with live FPS, jank-frame count, dance beat-timer lateness, the loaded build version, device scale factor, JS heap usage, and a Δheap/min trend (distinguishes a leak from a GC seesaw). For diagnosing animation stutter on devices without developer tools (tablets, WebView). Default is `false`. |
 | `debug_lite` | boolean | Optional | Diagnostic: freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Leave off for normal use. Default is `false`. |
 | `debug_dprfix` | boolean | Optional | **Retired (no-op) since 5.7.0-beta.3.** The SVG layer split replaced the single-SVG compositing path this workaround targeted, and it was falsified on the Tab S6 Lite field test. The key is accepted for backward compatibility but does nothing. Default is `false`. |

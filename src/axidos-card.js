@@ -14,6 +14,7 @@ import { AxidosAnimator } from './animator.js';
 import { applyState, updateProgressRing } from './states.js';
 import { bopHead } from './behaviors/bop.js';
 import { PerfMonitor } from './perf.js';
+import { resolveMotionMode, allowsSway } from './motion.js';
 
 export class AxidosCard extends HTMLElement {
   constructor() {
@@ -29,6 +30,14 @@ export class AxidosCard extends HTMLElement {
     // user", and re-attaching (section navigation, lazy load) must not
     // re-warn. A genuinely fixed config does not need the warning again.
     this._moodWarned = false;
+    // Motion policy (5.8.0): the OS preference is read here and cached; the
+    // config half is read by states.js:resolvePolicies. Splitting them this
+    // way keeps motion.js pure (no media queries) while still having exactly
+    // one place that observes the device.
+    this._prefersReducedMotion = false;
+    this._motionQuery = null;
+    this._motionMode = 'full';
+    this._personality = null;
     this._progressPct = null;
     this._state = 'idle';
     this._currentBpm = 120;
@@ -143,11 +152,76 @@ export class AxidosCard extends HTMLElement {
     }
   }
 
+  /**
+   * Observe `prefers-reduced-motion` and keep `_prefersReducedMotion` current
+   * (5.8.0). Called on every connect so a mid-session OS change takes effect
+   * on the next state application.
+   *
+   * There is deliberately no listener teardown in disconnectedCallback: the
+   * MediaQueryList is a single shared object, `addEventListener` dedupes the
+   * bound handler, and the handler is a no-op when `!this.isConnected`. That
+   * is cheaper and safer than tracking a listener lifecycle across HA's
+   * detach/re-attach dance (which would leak on any missed path).
+   */
+  _setupMotionPreference() {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (this._motionQuery) {
+      this._prefersReducedMotion = this._motionQuery.matches === true;
+      return;
+    }
+    try {
+      this._motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    } catch (err) { return; }
+    this._prefersReducedMotion = this._motionQuery.matches === true;
+    this._motionHandler = () => {
+      if (!this.isConnected || !this._motionQuery) return;
+      this._prefersReducedMotion = this._motionQuery.matches === true;
+      if (this.contentReady) {
+        // Re-apply the CURRENT state: that resolves the policy and rebuilds
+        // the behaviors, so an OS change mid-flight removes the work instead
+        // of waiting for the next entity change.
+        applyState(this, this._state, this._currentBpm || 120, this._currentMood);
+        this._applyMotionClass();
+      }
+    };
+    if (typeof this._motionQuery.addEventListener === 'function') {
+      this._motionQuery.addEventListener('change', this._motionHandler);
+    } else if (typeof this._motionQuery.addListener === 'function') {
+      this._motionQuery.addListener(this._motionHandler);
+    }
+  }
+
+  /**
+   * Project the resolved motion mode onto the DOM as a class on #scene.
+   * This is the last mile of the reduced-motion CSS (template.js): the CSS
+   * cannot know the config half of the decision, and the mode must be able to
+   * react to a config change without a rebuild.
+   */
+  _applyMotionClass() {
+    if (!this.shadowRoot) return;
+    const scene = this.shadowRoot.getElementById('scene');
+    if (!scene) return;
+    const mode = resolveMotionMode(
+      this.config ? this.config.motion_intensity : 'full',
+      this._prefersReducedMotion === true,
+    );
+    this._motionMode = mode;
+    scene.classList.toggle('motion-reduced', mode !== 'full');
+    // Ambient sway is pure decoration: 'reduced' and 'off' both stop it. The
+    // keyframes are paused rather than removed so a mode switch back restores
+    // them at the same phase instead of restarting from 0.
+    this._setSwayPaused(allowsSway(mode) ? '' : 'paused');
+  }
+
   // Double rAF Kinetic Reflow completely flushes frozen WebKit SVG timelines
   connectedCallback() {
     if (this._boundVisibility) {
       document.addEventListener('visibilitychange', this._boundVisibility);
     }
+    // Re-read the OS motion preference on every attach (5.8.0): a user can
+    // change it while the dashboard is open, and HA re-attaches cards on
+    // navigation.
+    this._setupMotionPreference();
     // Re-arm the offscreen observer on every re-attach (HA's renderer
     // detaches/re-attaches card elements without recreating them).
     this._setupOffscreenPause();
@@ -183,6 +257,7 @@ export class AxidosCard extends HTMLElement {
         });
       });
       if (this._state) {
+        this._applyMotionClass();
         applyState(this, this._state, this._currentBpm, this._currentMood);
       }
     }
@@ -243,6 +318,9 @@ export class AxidosCard extends HTMLElement {
     if (this.config.debug_perf === true) {
       this.perf = new PerfMonitor(this.shadowRoot, this.config);
     }
+    // Project the motion policy onto the fresh DOM (5.8.0): #scene is rebuilt
+    // by setupDOM, so the class and the sway pause must be re-applied.
+    this._applyMotionClass();
   }
 
   initAxidos() {

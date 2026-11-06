@@ -132,6 +132,31 @@ export function buildTemplate(config) {
       .debug-lite #eye-halo.breathing { animation: none !important; }
 ` : '';
 
+  // ---- Reduced motion (5.8.0, 3.12) ----
+  //
+  // CLASS-driven, not a bare @media query, on purpose: the card must be able
+  // to honour the OS preference AND its own motion_intensity config, and the
+  // config has no media-query equivalent. axidos-card.js resolves the two
+  // (motion.js resolveMotionMode) and toggles `motion-reduced` on #scene, so
+  // there is exactly ONE decision point and the CSS is just its last mile.
+  //
+  // Every rule here REMOVES work: no ambient sway, no breathing, no LED
+  // sweep, no danger-ring pulse. Nothing is slowed down instead.
+  const reducedCss = `
+      /* ---- motion_intensity: reduced | prefers-reduced-motion ---- */
+      .motion-reduced #body-pivot,
+      .motion-reduced #head-sway-pivot,
+      .motion-reduced #eye-halo.breathing { animation: none !important; }
+      .motion-reduced #danger-ring.active { animation: none !important; }
+      .motion-reduced .led-matrix.pulsing .led-dot,
+      .motion-reduced .telemetry-scan .led-dot,
+      .motion-reduced .telemetry-burst .led-dot { animation: none !important; }
+      /* Aperture and pose transitions stay, but with NO overshoot: a damped
+         settle is motion sickness for a vestibular-sensitive viewer. */
+      .motion-reduced #axidos-head,
+      .motion-reduced #torso-swivel { transition-timing-function: ease-out !important; }
+`;
+
   // Shared layer attributes: every layer carries the IDENTICAL viewBox so
   // px transform-origins + transform-box: view-box stay valid in each layer.
   const VB = 'viewBox="0 116 280 320"';
@@ -198,6 +223,23 @@ export function buildTemplate(config) {
       .led-matrix.pulsing .led-dot { animation: led-pulse 0.9s ease-in-out infinite; }
       @keyframes led-pulse { 0%,100% { opacity: var(--led-opacity); } 50% { opacity: calc(var(--led-opacity) * 0.3); } }
 
+      /* ---- LED telemetry (5.8.0, 2.8) — COMPOSITOR-ANIMATED ----
+         ONE class toggle per beat on the consumer elements drives these
+         keyframes; the alternative (per-dot custom-property writes, up to 24
+         per beat) is 24 style recalcs on a weak tablet CPU for the same
+         picture. Both sweeps are opacity-only, so they stay on the compositor
+         inside the LED layer.
+         COST GATE: this is only honest while the class changes at most once
+         per beat (it actually changes once per PHRASE). Any future pattern
+         that toggles it faster turns a compositor animation into a
+         style-recalc-per-beat and the telemetry must be dropped, not made
+         per-dot. Measurement requirement: with debug_perf on, worst-frame
+         and jank counts must stay flat against the 5.7.2 baseline. */
+      .telemetry-scan .led-dot { animation: led-telemetry-scan 2.4s linear infinite; }
+      .telemetry-burst .led-dot { animation: led-telemetry-burst 0.6s steps(3, end) infinite; }
+      @keyframes led-telemetry-scan { 0% { opacity: var(--led-opacity); } 45% { opacity: 1; } 100% { opacity: var(--led-opacity); } }
+      @keyframes led-telemetry-burst { 0%,100% { opacity: 1; } 50% { opacity: calc(var(--led-opacity) * 0.25); } }
+
       #body-pivot { transform-origin: 140px 116px; animation: body-sway 8s ease-in-out infinite; }
       @keyframes body-sway { 0%, 100% { transform: rotate(-1.4deg); } 50% { transform: rotate( 1.4deg); } }
 
@@ -218,9 +260,16 @@ export function buildTemplate(config) {
       .eye-layer { transition: opacity 0.8s ease-in-out; }
       @keyframes eye-breathe { 0%,100%{opacity:.02} 48%{opacity:.2} }
       #eye-halo.breathing { animation: eye-breathe 8s ease-in-out infinite; }
+      /* 13 FLASH SAFETY: the authored .35s cycle is 2.86 Hz — above the 2 Hz
+         budget the card now ships with (flash_safe defaults ON). The period is
+         retuned to 0.5 s (2 Hz) and the easing made STEPPED: a photosensitivity
+         limit is about the number of luminance transitions per second, and a
+         linear ease ramps through the intermediate values instead of holding
+         the two stable states. steps(1, end) gives exactly one hard transition
+         per half period — a 2 Hz square flash, not a 2 Hz sine. */
       @keyframes danger-flash { 0%,100%{opacity:0} 50%{opacity:1} }
-${liteCss}
-      #danger-ring.active { animation: danger-flash .35s ease-in-out infinite; }
+${liteCss}${reducedCss}
+      #danger-ring.active { animation: danger-flash .5s steps(1, end) infinite; }
 
       /* Idle progress ring: dasharray-driven fill (pathLength=100 → the dash
          length IS the percentage). Smooth transitions turn sensor jumps into

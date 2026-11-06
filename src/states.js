@@ -15,11 +15,34 @@
  * Tracked resource name: 'respond-delay'.
  */
 
-import { startLidBehavior, stopLidBehavior, startIdleCycle, stopIdleCycle } from './behaviors/idle.js';
+import {
+  startLidBehavior, stopLidBehavior, startIdleCycle, stopIdleCycle,
+  startRasterScan, stopRasterScan, servoToPose,
+} from './behaviors/idle.js';
 import { startDanceCycle, stopDanceCycle } from './behaviors/dance.js';
 import { startTalkAnim, stopTalkAnim } from './behaviors/talk.js';
 import { stopBop } from './behaviors/bop.js';
 import { progressColor, verticalProgressDash } from './state-mapper.js';
+import { resolveMotionMode, allowsBehaviorEngine, allowsStrobe } from './motion.js';
+import { servoPersonality } from './personality.js';
+
+/**
+ * Resolve and cache the motion policy + servo personality for this delivery
+ * (5.8.0). Both are DERIVED, never persisted: motion_intensity comes from
+ * config, prefers_reduced_motion from the card's matchMedia listener, and the
+ * personality from the same mood directive the dance consumes.
+ *
+ * Caching them on the card (rather than threading them through every behavior
+ * call) keeps the per-beat dance path to a string read, and guarantees the
+ * idle engine and the dance engine are looking at the SAME profile.
+ */
+function resolvePolicies(card, mood) {
+  card._motionMode = resolveMotionMode(
+    card.config ? card.config.motion_intensity : 'full',
+    card._prefersReducedMotion === true,
+  );
+  card._personality = servoPersonality(mood);
+}
 
 /** Stop every behavior engine and reset all visual layers. */
 function resetAll(card) {
@@ -27,10 +50,15 @@ function resetAll(card) {
   stopTalkAnim(card);
   stopLidBehavior(card);
   stopIdleCycle(card);
+  stopRasterScan(card);
   stopDanceCycle(card);
   stopBop(card);
   a.el.ledMatrices.forEach((m) => m.classList.remove('pulsing'));
-  if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '0');
+  if (typeof a.setLedTelemetry === 'function') a.setLedTelemetry(null);
+  if (a.el.dangerRing) {
+    a.el.dangerRing.setAttribute('opacity', '0');
+    a.el.dangerRing.classList.remove('active');
+  }
   // The progress ring is idle-only by default: every non-idle state hides it.
   // progress_show_in_dance opts the ring into dance mode (re-rendered below
   // in the dancing branch); all other non-idle states still hide it.
@@ -46,7 +74,35 @@ function resetAll(card) {
 export function applyStateVisuals(card, state, bpm, mood) {
   const a = card.animator;
 
+  // Motion policy (5.8.0) BEFORE resetAll: resetAll's dance teardown reads
+  // nothing from it, but the state branches below all do.
+  resolvePolicies(card, mood);
+  const motionMode = card._motionMode;
+  const engines = allowsBehaviorEngine(motionMode);
+  const strobeOn = allowsStrobe(motionMode);
+
   resetAll(card);
+
+  // ---- MOTION OFF: one static frame per state, zero scheduled work. ----
+  // This is the literal meaning of motion_intensity: 'off'. Every behavior
+  // engine is skipped, every loop stops, and the frame is composed once. It
+  // is the cheapest mode by construction (nothing survives this function).
+  if (!engines) {
+    a.el.eyeLayerIdle.style.opacity = state === 'idle' ? '1' : '0';
+    a.el.eyeLayerListen.style.opacity = state === 'listening' ? '1' : '0';
+    a.el.eyeLayerProcess.style.opacity = state === 'processing' ? '1' : '0';
+    a.el.eyeLayerRespond.style.opacity = state === 'responding' ? '1' : '0';
+    a.el.eyeLayerDance.style.opacity = state === 'dancing' ? '1' : '0';
+    a.setEyeHaloFill(stateHaloFill(state));
+    a.el.eyeHalo.style.opacity = '0.05';
+    a.setEyeCenterColor(stateCenterColor(state));
+    a.setLEDs(stateLedColor(state), state === 'idle' ? '0.15' : '1');
+    a.setPupil(0, 0);
+    a.setBaseLid(0, 0);
+    if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '0');
+    if (state === 'idle') updateProgressRing(card);
+    return;
+  }
 
   if (state === 'idle') {
     a.el.eyeLayerIdle.style.opacity = '1';
@@ -54,7 +110,11 @@ export function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill('url(#haloGradIdle)');
     a.el.eyeHalo.style.opacity = '0.05';
     a.setEyeCenterColor('#ffcc00');
-    a.setHead(0, 0, 0, 1.0, 2.2);
+    // 3.14 SERVO TRANSIENT: the head is driven onto the rest pose (overshoot
+    // then settle) instead of being cut there by resetAll(). The previous
+    // version wrote the pose 2.2 s after a hard reset, so the entry read as a
+    // teleport followed by nothing.
+    servoToPose(card, { r: 0, tx: 0, ty: 0, s: 1.0 }, { dur: 0.42, settleMs: 180 });
     a.setLid(0, 1.2);
     a.setPupil(0, 0);
     a.currentBaseLid = 0;
@@ -84,7 +144,9 @@ export function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill('url(#haloGradListen)');
     a.el.eyeHalo.style.opacity = '0.05';
     a.setEyeCenterColor('#aaffff');
-    a.setHead(4, 0, -8, 1.06, 1.0);
+    // Servo drive with a yaw: she turns the housing toward the speaker.
+    servoToPose(card, { r: 4, tx: 0, ty: -8, s: 1.06 }, { dur: 0.3, settleMs: 130 });
+    a.setHead(4, 0, -8, 1.06, 0.3, 'cubic-bezier(0.08, 0.95, 0.12, 1.02)', 2.5, 1.0);
     a.setBaseLid(0.1, 0.4);
     a.setPupil(0, -3);
     a.setLEDs('#00ccff', '1');
@@ -95,29 +157,58 @@ export function applyStateVisuals(card, state, bpm, mood) {
     a.setEyeHaloFill('url(#haloGradProcess)');
     a.el.eyeHalo.style.opacity = '0.05';
     a.setEyeCenterColor('#ffddaa');
-    a.setHead(-2, 0, 10, 0.96, 1.4);
+    servoToPose(card, { r: -2, tx: 0, ty: 10, s: 0.96 }, { dur: 0.34, settleMs: 150 });
     a.setBaseLid(0.65, 0.5);
     a.setLEDs('#ff6600', '1');
     a.setBodySwivel(1, 0.98, 1.8);
     a.el.ledMatrices.forEach((m) => m.classList.add('pulsing'));
     startLidBehavior(card);
-    const dart = () => {
-      if (card._state !== 'processing') return;
-      a.setPupil((Math.random() - 0.5) * 12, 4);
-      a.setTimeout('process-dart', dart, 200 + Math.random() * 600);
-    };
-    dart();
+    // 1.5 DETERMINISTIC RASTER SCAN: a seeded boustrophedon sweep of the
+    // socket, replacing the random dart loop. Same waypoint sequence on every
+    // run (pinned by the verify suite), bounded inside the socket.
+    startRasterScan(card);
   } else if (state === 'responding') {
     a.el.eyeLayerRespond.style.opacity = '1';
     a.el.eyeHalo.style.transition = 'opacity 0.8s';
     a.setEyeHaloFill('url(#haloGradRespond)');
     a.el.eyeHalo.style.opacity = '0.05';
     a.setEyeCenterColor('#ffaaaa');
-    if (a.el.dangerRing) a.el.dangerRing.setAttribute('opacity', '1');
+    // FLASH SAFETY (3.13): the danger ring's authored 0.35 s cycle is 2.86 Hz
+    // — over the 2 Hz budget. The class (whose keyframes are retuned to a
+    // 0.5 s period in template.js) is only applied when the strobe channel is
+    // allowed, so reduced motion removes the pulse entirely rather than
+    // slowing it down.
+    if (a.el.dangerRing) {
+      a.el.dangerRing.setAttribute('opacity', '1');
+      if (strobeOn) a.el.dangerRing.classList.add('active');
+    }
     a.setLEDs('#ff2200', '1');
     a.setBodySwivel(0, 1, 0.8);
     startTalkAnim(card);
   }
+}
+
+/** Static-frame helpers (motion off) — the per-state optic/indicator colours. */
+function stateHaloFill(state) {
+  if (state === 'dancing') return 'url(#haloGradDance)';
+  if (state === 'listening') return 'url(#haloGradListen)';
+  if (state === 'processing') return 'url(#haloGradProcess)';
+  if (state === 'responding') return 'url(#haloGradRespond)';
+  return 'url(#haloGradIdle)';
+}
+function stateCenterColor(state) {
+  if (state === 'listening') return '#aaffff';
+  if (state === 'processing') return '#ffddaa';
+  if (state === 'responding') return '#ffaaaa';
+  if (state === 'dancing') return '#ffffff';
+  return '#ffcc00';
+}
+function stateLedColor(state) {
+  if (state === 'listening') return '#00ccff';
+  if (state === 'processing') return '#ff6600';
+  if (state === 'responding') return '#ff2200';
+  if (state === 'dancing') return '#1DB954';
+  return '#ffb800';
 }
 
 /**
