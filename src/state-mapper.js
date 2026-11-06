@@ -35,27 +35,59 @@ export function parseBpm(rawBpm) {
  *
  * Source (5.7.0): the dedicated AX BPM mood entity (integration 3.3.0+).
  * hass-update.js merges its STATE (the mood label, e.g. 'party') and its
- * ATTRIBUTES (mood_scores / intensity / calmness) into one dict:
+ * ATTRIBUTES (mood_scores) into one dict:
  *   mood_scores: { aggressive, party, relaxed, electronic, acoustic }
  *   mood_label:  the dominant label (e.g. 'party')
- *   intensity / calmness: 0-1 scalars
+ *
+ * intensity / calmness are published by the integration but deliberately
+ * NOT consumed here: they are derived (intensity = mean(aggressive, party,
+ * electronic), calmness = mean(relaxed, acoustic)), so reading them would
+ * double-count the same signals the five heads already carry. The card
+ * re-derives its own directives from the heads to keep the mapping
+ * explicit and tunable.
  *
  * Output (all fields always present — callers never null-check):
  *   present:     false when no usable mood attributes exist (plain BPM
  *                sensor) — every directive is then neutral, so existing
  *                users get bit-identical behavior.
  *   tierShift:   -1 | 0 | +1 — shifts the BPM-derived phrase-library tier.
- *                relaxed-dominant downshifts (chill moves at fast tempo),
- *                party/aggressive-dominant upshifts.
+ *                ALL FIVE heads steer: relaxed/acoustic-dominant
+ *                downshifts (chill moves at fast tempo),
+ *                aggressive/party/electronic-dominant upshifts.
  *   energyBias:  additive bias for the choreography energy envelope,
- *                clamped to [-0.2, +0.2]. Relaxed pulls wild phrases out
- *                of selection; party/aggressive pull them in.
- *   lidFloor:    the dance lid-droop floor. Relaxed raises it (sleepy
- *                chill), party/aggressive lower it (wide awake).
+ *                clamped to [-0.2, +0.2]. Calm heads pull wild phrases out
+ *                of selection; high-arousal heads pull them in.
+ *   lidFloor:    the dance lid-droop floor. Calm heads raise it (sleepy
+ *                droop), high-arousal heads LOWER it below the BPM floor
+ *                (wide awake) — see resolveLidFloor in behaviors/dance.js.
+ *
+ * Five-head mapping (5.7.2). The two extra heads steer at reduced weight
+ * because the integration's own arithmetic treats them as secondary
+ * signals: `electronic` is an intensity numerator but a weak party proxy,
+ * and `acoustic` is a calmness numerator but a weaker one than `relaxed`.
+ * Weights scale energyBias AND scale how far lidFloor moves.
+ *
+ *   head         family        weight  tierShift  energyBias  lidFloor
+ *   aggressive   high-arousal  1.0     +1          +0.20       0.05
+ *   party        high-arousal  1.0     +1          +0.18       0.06
+ *   electronic   high-arousal  0.6     +1          +0.12       0.07
+ *   relaxed      calm          1.0     -1          -0.20       0.30
+ *   acoustic     calm          0.6     -1          -0.12       0.22
+ *
+ * Every head gets a DISTINCT (energyBias, lidFloor) pair on purpose: two
+ * heads resolving to the same directive would mean `set_mood` could change
+ * the sensor state without changing anything on screen — the exact defect
+ * this release set out to remove. Within the high-arousal family the order
+ * is severity (aggressive > party > electronic); within the calm family it
+ * is droop (relaxed > acoustic).
  *
  * Dominance rule: the mood_label's own score must be the maximum of the
- * score set AND above MOOD_CONFIDENCE (0.4) — a weak or noisy
- * classification stays neutral instead of yanking the style around.
+ * COMPLETE five-head set AND above MOOD_CONFIDENCE (0.4) — a weak or noisy
+ * classification stays neutral instead of yanking the style around. The
+ * set is complete over all five heads because the integration's mood_label
+ * is an argmax over all five (`_mood_attrs_from_payload`), so a label like
+ * 'electronic' is a legitimate, expected input — reading only three heads
+ * made two of the five `set_mood` override options inert.
  */
 export function parseMood(attrs) {
   const neutral = { present: false, tierShift: 0, energyBias: 0, lidFloor: null };
@@ -66,46 +98,105 @@ export function parseMood(attrs) {
   const aggressive = num(scores.aggressive);
   const party = num(scores.party);
   const relaxed = num(scores.relaxed);
-  if (aggressive === null && party === null && relaxed === null) return neutral;
+  const electronic = num(scores.electronic);
+  const acoustic = num(scores.acoustic);
+  // No head carries a number → nothing to steer with.
+  if (aggressive === null && party === null && relaxed === null
+    && electronic === null && acoustic === null) return neutral;
 
   const label = typeof attrs.mood_label === 'string' ? attrs.mood_label.toLowerCase() : '';
-  const vals = [aggressive, party, relaxed].filter((v) => v !== null);
+  // Dominance is judged over the COMPLETE five-head set (mirrors the
+  // integration's argmax domain). null heads simply do not compete.
+  const vals = [aggressive, party, relaxed, electronic, acoustic].filter((v) => v !== null);
   const maxScore = vals.length ? Math.max(...vals) : 0;
-  // Dominance: the labeled mood must be the top score and confident.
-  const labelScore = label === 'aggressive' ? aggressive
-    : label === 'party' ? party
-    : label === 'relaxed' ? relaxed
+  const labelScore = MOOD_HEAD_BY_LABEL[label] !== undefined
+    ? num(scores[label])
     : null;
   const dominant = labelScore !== null && labelScore >= MOOD_CONFIDENCE && labelScore >= maxScore;
 
   let tierShift = 0;
   let energyBias = 0;
   let lidFloor = null;
-  if (dominant) {
-    if (label === 'relaxed') {
-      tierShift = -1;
-      energyBias = -0.2;
-      lidFloor = MOOD_LID_RELAXED;
-    } else {
-      // party and aggressive both read as high-arousal: upshift + brighter.
-      tierShift = 1;
-      energyBias = 0.2;
-      lidFloor = MOOD_LID_AWAKE;
-    }
+  if (dominant && MOOD_HEAD_BY_LABEL[label] !== undefined) {
+    const head = MOOD_HEAD_BY_LABEL[label];
+    tierShift = head.tierShift;
+    energyBias = head.energyBias;
+    lidFloor = head.lidFloor;
   } else {
     // Non-dominant moods still tint the energy envelope softly from the
-    // raw scores (party/aggressive up, relaxed down), never enough to
-    // cross the tier gate on their own.
+    // raw scores, never enough to cross the tier gate on their own. All
+    // five heads participate: high-arousal heads push up, calm heads pull
+    // down, each at its family weight.
     const p = party || 0;
     const ag = aggressive || 0;
+    const el = electronic || 0;
     const re = relaxed || 0;
-    energyBias = Math.max(-0.2, Math.min(0.2, (p * 0.6 + ag * 0.4 - re) * 0.3));
+    const ac = acoustic || 0;
+    energyBias = Math.max(-0.2, Math.min(0.2,
+      (p * 0.6 + ag * 0.4 + el * 0.25 - re - ac * 0.5) * 0.3));
   }
   return { present: true, tierShift, energyBias, lidFloor };
 }
 
 /** Confidence threshold for a mood label to steer the style. */
 export const MOOD_CONFIDENCE = 0.4;
+
+/**
+ * Lid-droop floors per mood family (5.7.2).
+ *
+ * These are ABSOLUTE floors: when a mood is present its floor REPLACES the
+ * BPM-only floor instead of being maxed with it. That is what makes the
+ * high-arousal branch meaningful — the old `Math.max(bpmFloor, moodFloor)`
+ * could never let 0.05 beat 0.15/0.08, so "wide awake" was dead code.
+ *
+ * Calm heads raise the floor (heavy droop, sleepy chill); high-arousal
+ * heads lower it (wide awake, more of the phrase's own lid attitude
+ * survives). Two weights per family: the secondary heads (electronic,
+ * acoustic) move the floor only part-way toward the primary head's value,
+ * mirroring their reduced energyBias weight.
+ */
+export const MOOD_LID_AWAKE = 0.05;
+/** Party: celebratory but less severe than aggressive. */
+export const MOOD_LID_PARTY = 0.06;
+/**
+ * Secondary high-arousal head: the least awake of the high family, but it
+ * MUST stay below BOTH BPM floors (0.15 at <125 BPM, 0.08 at >=125 BPM) or
+ * the head stops clearing the droop at club tempos and starts adding to it
+ * — an inversion verified by verify_mood_style check 10h.
+ */
+export const MOOD_LID_ELECTRONIC = 0.07;
+/** Secondary calm head: between the awake and relaxed floors. */
+export const MOOD_LID_ACOUSTIC = 0.22;
+export const MOOD_LID_RELAXED = 0.3;
+
+/**
+ * Per-head dance-style directive table (5.7.2 — all five heads steer).
+ *
+ * The integration's mood_label is an argmax over all FIVE heads, so every
+ * head is a legitimate label. Previously only three were mapped, which
+ * made `electronic` and `acoustic` (two of the five `set_mood` override
+ * choices) change the sensor state without changing anything visual.
+ *
+ * Weights: the two secondary heads steer at 0.6 because the integration's
+ * own published arithmetic treats them as secondary — `electronic` is an
+ * intensity numerator but a weak party proxy, `acoustic` a calmness
+ * numerator but weaker than `relaxed`.
+ *
+ * Kept as data, not branches, so the verify suite can assert every head is
+ * mapped and no two heads share a directive tuple.
+ */
+export const MOOD_HEAD_BY_LABEL = {
+  // High-arousal family, ordered by severity: aggressive is the most
+  // extreme descriptor, party the celebratory one, electronic the weakest
+  // (it is an intensity numerator, not a mood-strength claim).
+  aggressive: { family: 'high', weight: 1.0, tierShift: 1, energyBias: 0.2, lidFloor: MOOD_LID_AWAKE },
+  party: { family: 'high', weight: 1.0, tierShift: 1, energyBias: 0.18, lidFloor: MOOD_LID_PARTY },
+  electronic: { family: 'high', weight: 0.6, tierShift: 1, energyBias: 0.12, lidFloor: MOOD_LID_ELECTRONIC },
+  // Calm family, ordered by droop: relaxed is the primary calm numerator,
+  // acoustic the weaker one.
+  relaxed: { family: 'calm', weight: 1.0, tierShift: -1, energyBias: -0.2, lidFloor: MOOD_LID_RELAXED },
+  acoustic: { family: 'calm', weight: 0.6, tierShift: -1, energyBias: -0.12, lidFloor: MOOD_LID_ACOUSTIC },
+};
 
 /**
  * Compact change-detection signature for the mood entity's data.
@@ -124,10 +215,6 @@ export function moodSignature(attrs) {
     r2(s.aggressive), r2(s.party), r2(s.relaxed), r2(s.electronic), r2(s.acoustic),
   ].join('|');
 }
-/** Lid-droop floors: relaxed keeps a sleepy droop, high-arousal stays open. */
-export const MOOD_LID_RELAXED = 0.3;
-export const MOOD_LID_AWAKE = 0.05;
-
 /**
  * Parse a progress sensor state string and normalize it to the ring's 0-100
  * scale using the configured bounds (progress_min / progress_max).

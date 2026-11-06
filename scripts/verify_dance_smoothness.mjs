@@ -3,6 +3,14 @@
  * choreography contract. Runs the real startDanceCycle() with a stubbed
  * animator and asserts, for every tier (70/110/140/180 BPM):
  *
+ * NEW in 5.7.1 (15/16): the LIVING HOLD contract. A phrase that targets the
+ * SAME head pose (r, tx, ty, s) on consecutive beats makes dance.js issue an
+ * identical transform every beat; the browser has nothing to interpolate, so
+ * the head PARKS mid-pose until the next bar's hard cut. That was the field
+ * report "the dance gets stuck with a left tilt until the next move". The
+ * suite now fails any phrase whose longest unchanged-target run reaches 4
+ * beats, and asserts the living-hold breath keeps held bars moving in place.
+ *
  * Execution contract (CSS-transition model):
  *  1. One setHead() move per beat — no WAAPI keyframes, no RAF loops, no
  *     getComputedStyle() recalcs in the dance path (compositor-friendly).
@@ -51,6 +59,7 @@ import {
 } from '../src/behaviors/dance.js';
 import {
   TIERS, getEnergy, pickNextPhrase, phraseVariant, getBeatPose,
+  liveHoldOffset, LIVE_HOLD_BREATH_PX, LIVE_HOLD_LID_ACCENT,
 } from '../src/behaviors/choreography.js';
 
 // ---- Minimal DOM/animator stub ----
@@ -647,6 +656,90 @@ for (const tier of TIERS_BPM) {
 
   stopDanceCycle(card);
   assert(typeof card._retuneDance === 'undefined', 'retune hook dies with the cycle (stopDanceCycle clears it)');
+}
+
+// 15. LIVING HOLD — the dead-bar audit (5.7.1).
+//     A held phrase makes dance.js write an IDENTICAL head transform every
+//     beat; the browser has nothing to interpolate and the head parks mid-pose
+//     until the next bar's hard cut. Field report: "she gets stuck with a left
+//     tilt until the next dance move". This walks every phrase of every tier
+//     over the bar and fails any run of 4+ beats with an unchanged head
+//     target (r, tx, ty, s).
+{
+  console.log('\n== living hold: no dead bars ==');
+  const EPS = 1e-9;
+  let offenders = 0;
+  let worst = { name: 'none', run: 0, tier: -1 };
+  for (let tierIdx = 0; tierIdx < TIERS.length; tierIdx++) {
+    for (let idx = 0; idx < TIERS[tierIdx].phrases.length; idx++) {
+      const p = TIERS[tierIdx].phrases[idx];
+      const v = phraseVariant(tierIdx, idx, 0);
+      let run = 1;
+      let best = 1;
+      let prev = getBeatPose(tierIdx, idx, 0, v, 0);
+      for (let b = 1; b < 16; b++) {
+        const cur = getBeatPose(tierIdx, idx, b, v, b);
+        const same = Math.abs(cur.r - prev.r) < EPS && Math.abs(cur.tx - prev.tx) < EPS
+          && Math.abs(cur.ty - prev.ty) < EPS && Math.abs(cur.s - prev.s) < EPS;
+        if (same) { run++; if (run > best) best = run; } else { run = 1; }
+        prev = cur;
+      }
+      if (best > worst.run) worst = { name: p.name, run: best, tier: tierIdx };
+      if (best >= 4) {
+        offenders++;
+        console.error(`    tier ${tierIdx} ${p.name}: ${best} consecutive beats with an unchanged head target (head parks)`);
+      }
+    }
+  }
+  assert(offenders === 0,
+    `no phrase holds one head target for 4+ beats (longest run: ${worst.run} beat(s) in ${worst.name}, tier ${worst.tier})`);
+}
+
+// 16. LIVING HOLD — the breath contract.
+//     The fix must keep held bars visibly alive: consecutive held beats must
+//     target DIFFERENT points, bounded and small (secondary motion on a held
+//     pose, not a new move), while a not-held beat stays exactly zero so every
+//     moving beat of the legacy port is untouched.
+{
+  console.log('\n== living hold: breath contract ==');
+  const zero = liveHoldOffset(0);
+  assert(zero.ty === 0 && zero.lid === 0, 'not-held (heldBeats = 0) contributes exactly zero offset (moving beats unchanged)');
+
+  const first = liveHoldOffset(1);
+  assert(Math.abs(first.ty) > 1e-6,
+    `the first held beat already departs from the held target (|ty| = ${Math.abs(first.ty).toFixed(3)} px, not a dead repeat)`);
+
+  let bounded = true;
+  let distinct = true;
+  let prev = null;
+  for (let h = 1; h <= 32; h++) {
+    const o = liveHoldOffset(h);
+    if (Math.abs(o.ty) > LIVE_HOLD_BREATH_PX + 1e-9 || Math.abs(o.lid) > LIVE_HOLD_LID_ACCENT + 1e-9) bounded = false;
+    if (prev && Math.abs(o.ty - prev.ty) < 1e-6 && Math.abs(o.lid - prev.lid) < 1e-6) distinct = false;
+    prev = o;
+  }
+  assert(bounded, `breath stays bounded (|ty| <= ${LIVE_HOLD_BREATH_PX} px, |lid| <= ${LIVE_HOLD_LID_ACCENT})`);
+  assert(distinct, 'every consecutive held beat targets a different point (the head can never park)');
+  // The half-stepped phase is the guard against a whole-beat zero crossing:
+  // sin(0) or sin(k*PI/2) would re-target the BARE held pose and park for that
+  // beat. No integer heldBeats may land on zero in the breath channel.
+  let crossing = -1;
+  for (let h = 1; h <= 32; h++) {
+    if (Math.abs(liveHoldOffset(h).ty) < 1e-6) { crossing = h; break; }
+  }
+  assert(crossing === -1,
+    `no held beat lands on a zero breath (half-stepped phase; first zero would be held beat ${crossing})`);
+
+  // The lid accent is a SEPARATE channel from the breath, so a held bar has
+  // two independent signs of life (eyes soften as she rises). The two are in
+  // quadrature, so on any given held beat at least one of them is non-zero.
+  let bothDead = -1;
+  for (let h = 1; h <= 32; h++) {
+    const o = liveHoldOffset(h);
+    if (Math.abs(o.ty) < 1e-6 && Math.abs(o.lid) < 1e-6) { bothDead = h; break; }
+  }
+  assert(bothDead === -1,
+    `held beats always carry at least one living channel (breath and lid are in quadrature; both-dead beat ${bothDead})`);
 }
 
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);

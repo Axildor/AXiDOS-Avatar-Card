@@ -392,7 +392,7 @@ console.log('\n== 8. 5.7.0-beta.1: template gating + scene guard + HUD build/fla
     mon._renderHud();
     const txt = mon._hud.textContent;
     assert(txt.includes(`build: ${CARD_VERSION}`), `HUD echoes the build version (${CARD_VERSION})`);
-    assert(CARD_VERSION === '5.7.0', `version.js is the 5.7.0 stable build (${CARD_VERSION})`);
+    assert(CARD_VERSION === '5.7.2', `version.js is the 5.7.2 stable build (${CARD_VERSION})`);
     assert(/dpr: \d/.test(txt), 'HUD shows live dpr');
     // dprfix retired (A2): the HUD shows "retired (no-op)" for a stale
     // config so the tester can identify it on the tablet.

@@ -78,6 +78,9 @@ export function sanitizeConfig(config) {
   // Mood entity (5.7.0): the AX BPM integration's dedicated mood sensor.
   // Required for mood steering — without it the dance stays on the plain
   // BPM-derived style (the BPM sensor no longer carries mood attributes).
+  // Empty stays empty here on purpose: hass-update.js:resolveMoodEntity()
+  // opportunistically adopts 'sensor.ax_bpm_mood' at delivery time when it
+  // exists, because whether that entity exists is hass state, not config.
   c.mood_entity = typeof c.mood_entity === 'string' ? c.mood_entity : '';
   // Perf diagnostics (5.8.0): opt-in on-card performance HUD (FPS, jank
   // frames, beat-timer lateness) for devices without console access

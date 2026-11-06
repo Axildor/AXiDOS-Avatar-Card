@@ -252,7 +252,7 @@ export function buildEditorForm() {
         respond_delay: 'Seconds to wait before switching from Processing to Responding.',
         zoom: 'Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.',
         transparent_bg: 'Removes the card background, shadow, and border.',
-        mood_entity: 'The AX BPM integration\'s dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.',
+        mood_entity: 'The AX BPM integration\'s dedicated mood sensor (3.3.0+, normally sensor.ax_bpm_mood). Its state is the mood label; its attributes carry the mood scores that steer the dance style. Leave empty to auto-detect sensor.ax_bpm_mood. Do NOT point this at the BPM sensor — mood moved off it in AX BPM 3.3.0.',
         mood_style_enabled: 'Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.',
         debug_perf: 'Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.',
         debug_lite: 'Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only — leave off for normal use.',

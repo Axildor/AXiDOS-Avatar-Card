@@ -499,6 +499,116 @@ export function phraseVariant(tierIdx, phraseId, phraseCount) {
   return { lead: rnd() < 0.5 ? 1 : -1, jitter: 0.9 + rnd() * 0.2 };
 }
 
+// ---- Living hold (5.7.1) ----
+//
+// A HELD phrase is one whose pose function returns the SAME head target
+// (r, tx, ty, s) on consecutive beats — the legacy "hold the pose across the
+// bar" textures (`strobe-slam`, `settle-rest`). The head target is stable, so
+// dance.js issues an identical setHead() transform every beat, the browser has
+// nothing to interpolate, and the head PARKS mid-pose while the beat clock,
+// LEDs, lids and pupil accents keep running. On screen that reads as "the
+// dance froze with her head tilted, until the next phrase swaps" — the field
+// report this constant exists to prevent.
+//
+// The fix is secondary motion, not a new move: on any beat whose target equals
+// the previous beat's, the pose gains a small, deterministic "breath" in ty
+// plus an eyelid accent, so every held beat still targets a DIFFERENT point and
+// the head keeps living in place. The held attitude (the tilt itself) is
+// untouched — that is the deliberate look of a held phrase.
+//
+// Design constraints:
+//  - Pure and deterministic: the breath is a function of how many consecutive
+//    beats the pose has been held, never of Math.random. The determinism
+//    contract (two identical runs -> identical choreography) still holds.
+//  - Moving beats are BYTE-IDENTICAL: heldBeats is 0 for every beat that
+//    follows a target change, so the legacy port is untouched everywhere it
+//    already moves. Only dead bars change.
+//  - The torso swivel deliberately stays parked: dance.js slaves it to
+//    move.r * -0.5, and a held phrase holds r on purpose. Retargeting a
+//    multi-beat swivel every beat is the per-beat stall 5.5.2 removed, so a
+//    settled torso under a breathing head is the intended read here.
+//
+// Amplitudes are deliberately small: this is a held pose with a pulse, not a
+// move. 3 px of vertical travel at the head's scale reads as breathing at
+// arm's length without competing with the next phrase's hard cut.
+
+/** Peak vertical breathing travel (px) applied on a held beat. */
+export const LIVE_HOLD_BREATH_PX = 3;
+
+/** Peak eyelid accent applied on a held beat (0-1 lid scale). */
+export const LIVE_HOLD_LID_ACCENT = 0.1;
+
+/** Breaths per 8 held beats — one slow breath cycle per half bar. */
+const LIVE_HOLD_PERIOD_BEATS = 8;
+
+/**
+ * Secondary motion for a run of held beats.
+ *
+ * `heldBeats` is the 1-based length of the run ending at the beat being
+ * rendered (1 = the first beat whose target repeats the previous beat's).
+ * The returned ty/lid offsets are guaranteed NON-ZERO and DIFFERENT from the
+ * previous held beat's offsets, which is the whole point: the head keeps
+ * moving while the target attitude is held.
+ *
+ * The phase is HALF-STEPPED — (heldBeats - 0.5) — so the sine never sits at a
+ * whole-beat zero crossing. Phase 0 on the first held beat, or an integer
+ * quarter-cycle later, would evaluate to exactly 0 and reproduce the very
+ * dead beat this exists to remove: the head would re-target the bare held
+ * pose and park for that beat. Half-stepping keeps |ty| and |lid| non-zero on
+ * every held beat for any run length.
+ *
+ * @param {number} heldBeats 1-based held-run length (0/absent = not held)
+ * @returns {{ty:number, lid:number}}
+ */
+export function liveHoldOffset(heldBeats) {
+  if (!(heldBeats >= 1)) return { ty: 0, lid: 0 };
+  const phase = (2 * Math.PI * (heldBeats - 0.5)) / LIVE_HOLD_PERIOD_BEATS;
+  return {
+    ty: LIVE_HOLD_BREATH_PX * Math.sin(phase),
+    // Lid leads the breath by a quarter cycle: the eyes soften as she rises,
+    // so the held bar reads as a relaxed hold rather than a mechanical bob.
+    lid: LIVE_HOLD_LID_ACCENT * Math.sin(phase + Math.PI / 2),
+  };
+}
+
+/** Raw (pre-jitter) pose for one beat of a phrase. Shared by getBeatPose and
+ *  the held-run lookback so both evaluate the phrase EXACTLY the same way —
+ *  a divergent re-implementation here would make hold detection lie. */
+function rawPoseAt(tierIdx, phraseId, beat, variant, globalBeat) {
+  const phrase = TIERS[tierIdx].phrases[phraseId];
+  const rnd = mulberry32(hash32(
+    Math.imul(phraseId + 1, 7919) ^ Math.imul(beat + 1, 104729) ^ Math.imul(tierIdx + 1, 7)
+  ));
+  return phrase.pose(beat, {
+    isDown: beat % 2 === 0, quad: beat % 4 === 0,
+    m4: beat % 4, m8: beat % 8,
+    lead: variant.lead, global: globalBeat, rnd,
+  });
+}
+
+/** Do two raw poses share a head target? Only the four channels dance.js
+ *  actually writes to the head participate — lid/pump/dart/halo/strobe are
+ *  separate channels that already carry their own per-beat life. */
+function sameHeadTarget(a, b) {
+  return Math.abs(a.r - b.r) < 1e-9 && Math.abs(a.tx - b.tx) < 1e-9
+    && Math.abs(a.ty - b.ty) < 1e-9 && Math.abs(a.s - b.s) < 1e-9;
+}
+
+/** Length of the held run ending at beat `b` (0 = this beat moves). */
+function heldRunAt(tierIdx, phraseId, b, variant, globalBeat, current) {
+  if (b <= 0) return 0; // beat 0 is the hard cut in — never a continuation
+  let held = 0;
+  let newer = current;
+  for (let k = b - 1; k >= 0; k--) {
+    // The global counter for an earlier beat of the same phrase.
+    const past = rawPoseAt(tierIdx, phraseId, k, variant, globalBeat - (b - k));
+    if (!sameHeadTarget(newer, past)) break;
+    held++;
+    newer = past;
+  }
+  return held;
+}
+
 /**
  * The pose for one beat of a phrase — the single choreography entry point.
  *
@@ -507,6 +617,11 @@ export function phraseVariant(tierIdx, phraseId, phraseCount) {
  * establish ramp, no energy-arc amplitude scale, and no resolve pre-blend —
  * phrase changes are hard cuts at the bar boundary (the legacy model), and
  * phrase-to-phrase amplitude contrast is the ONLY size contrast in the dance.
+ *
+ * 5.7.1 exception, the ONE thing layered on top: a held beat (target equal to
+ * the previous beat's) gains the living-hold breath, so a held phrase keeps
+ * moving in place instead of parking (see liveHoldOffset above). Every
+ * non-held beat is unchanged.
  *
  * @param {number} tierIdx   0-3 tempo tier
  * @param {number} phraseId  current phrase index
@@ -517,14 +632,8 @@ export function phraseVariant(tierIdx, phraseId, phraseCount) {
  */
 export function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
   const phrase = TIERS[tierIdx].phrases[phraseId];
-  const isDown = b % 2 === 0;
-  const rnd = mulberry32(hash32(
-    Math.imul(phraseId + 1, 7919) ^ Math.imul(b + 1, 104729) ^ Math.imul(tierIdx + 1, 7)
-  ));
-  const raw = phrase.pose(b, {
-    isDown, quad: b % 4 === 0, m4: b % 4, m8: b % 8,
-    lead: variant.lead, global: globalBeat, rnd,
-  });
+  const raw = rawPoseAt(tierIdx, phraseId, b, variant, globalBeat);
+  const hold = liveHoldOffset(heldRunAt(tierIdx, phraseId, b, variant, globalBeat, raw));
   const k = variant.jitter;
   // Pupil darts are clamped radially to DART_MAX[tier]. The iris (r=17.6)
   // sits inside the socket face (r=23) — only a 5.4 px translation budget
@@ -544,9 +653,12 @@ export function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
   return {
     r: raw.r * k,
     tx: raw.tx * k,
-    ty: raw.ty * k,
+    // Living hold: on a held beat the breath is added on top of the (stable)
+    // target, so consecutive held beats always differ and the head never
+    // parks. On a moving beat hold.ty is exactly 0 — byte-identical legacy.
+    ty: raw.ty * k + hold.ty,
     s: 1 + (raw.s - 1) * k,
-    lid: raw.lid,
+    lid: raw.lid + hold.lid,
     pump: raw.pump * k,
     flow: raw.flow,
     flowBlend: raw.flow ? 1 : 0,

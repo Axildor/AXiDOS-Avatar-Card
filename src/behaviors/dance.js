@@ -265,12 +265,10 @@ export function startDanceCycle(card, bpm, mood) {
     }
 
     // Chill lids (PERSONALITY law): the phrase supplies the lid attitude;
-    // a relaxed floor keeps a whisper of droop so accents still read. The
-    // mood (5.6.0) may raise the floor (relaxed = sleepy droop) or lower it
-    // (party/aggressive = wide awake); without mood the BPM-only floor
-    // applies unchanged.
+    // a floor keeps a whisper of droop so accents still read. See
+    // resolveLidFloor for the mood-vs-BPM precedence rule.
     const bpmLidFloor = currentBpm < 125 ? 0.15 : 0.08;
-    const lid = Math.max(move.lid, lidFloor !== null ? Math.max(bpmLidFloor, lidFloor) : bpmLidFloor);
+    const lid = Math.max(move.lid, resolveLidFloor(bpmLidFloor, lidFloor));
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
   };
@@ -294,6 +292,32 @@ function mulberryFrom(seed) {
  *  1.9x so a flow move always hands over before the phrase's second bar. */
 const HIT_CLAMP_BEATS = 2.0;
 const FLOW_CLAMP_BEATS = 1.9;
+
+/**
+ * Resolve the dance lid-droop floor from the BPM-only floor and the optional
+ * mood floor (5.7.2).
+ *
+ * When a mood is present its floor is AUTHORITATIVE — it REPLACES the
+ * BPM-only floor instead of being maxed with it. This is deliberate:
+ *
+ *  - Under the old `Math.max(bpmFloor, moodFloor)` rule the high-arousal
+ *    floor (0.05) could never beat either BPM floor (0.15 at <125 BPM, 0.08
+ *    at >=125 BPM), so every "party/aggressive = wide awake" directive was
+ *    dead code — the mood only ever raised the floor, never lowered it.
+ *  - With replacement, calm heads still raise the droop (relaxed 0.3,
+ *    acoustic 0.22) and high-arousal heads genuinely clear the way for the
+ *    phrase's own lid attitude (aggressive/party 0.05, electronic 0.08).
+ *
+ * moodFloor === null / undefined (no mood, or a head that publishes no
+ * floor) keeps the legacy BPM-only behaviour bit-identically.
+ *
+ * Exported for the verify suite: this precedence rule is exactly the kind
+ * of invariant that a future "simplification" would silently invert.
+ */
+export function resolveLidFloor(bpmLidFloor, moodFloor) {
+  if (moodFloor === null || moodFloor === undefined) return bpmLidFloor;
+  return moodFloor;
+}
 
 /** Tempo tier for a BPM value — the phrase-library selector. */
 export function tierForBpm(bpm) {

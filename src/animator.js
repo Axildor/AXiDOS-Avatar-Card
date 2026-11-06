@@ -190,6 +190,19 @@ export class AxidosAnimator {
   // split C1/C2): the eye/LED layers carry mirror chains, and a write to
   // only the first copy would desync the layers.
 
+  /**
+   * Pose the head. NO redundant-write guard — deliberately, and do not add one.
+   *
+   * freezeHeadMotion() (tap bop) leaves the head with `transition: none` and an
+   * inline mid-flight transform. The first post-bop write MUST restore the
+   * transition even when the target is numerically identical to what is
+   * already inline; a "skip identical transform" optimization here would skip
+   * that restore and the head would stay frozen for the rest of the state.
+   *
+   * The separate 5.7.1 "dead bar" problem (a phrase that targets an unchanged
+   * pose for many beats, so the browser has nothing to interpolate) is fixed
+   * UPSTREAM in choreography.js via the living-hold breath, not here.
+   */
   setHead(rot, tx, ty, scale = 1.0, dur, ease = 'cubic-bezier(0.34,1.06,0.64,1)') {
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;

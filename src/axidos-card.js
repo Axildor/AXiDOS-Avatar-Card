@@ -24,6 +24,11 @@ export class AxidosCard extends HTMLElement {
     this._lastHassBpm = null;
     this._lastHassProgress = null;
     this._lastHassMood = null;
+    // One-time mood misconfiguration warning latch (5.7.2). Deliberately NOT
+    // reset in connectedCallback: it records "this instance already told the
+    // user", and re-attaching (section navigation, lazy load) must not
+    // re-warn. A genuinely fixed config does not need the warning again.
+    this._moodWarned = false;
     this._progressPct = null;
     this._state = 'idle';
     this._currentBpm = 120;

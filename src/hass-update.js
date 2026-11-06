@@ -12,6 +12,71 @@
 import { resolveState, parseBpm, parseProgress, parseMood, moodSignature } from './state-mapper.js';
 import { applyState, updateProgressRing } from './states.js';
 
+/** The AX BPM integration's dedicated mood entity (3.3.0+ naming). */
+export const DEFAULT_MOOD_ENTITY = 'sensor.ax_bpm_mood';
+
+/**
+ * Resolve the mood entity id for this delivery.
+ *
+ * An explicitly configured `mood_entity` always wins. When it is empty we
+ * opportunistically adopt the AX BPM integration's default mood entity if
+ * the user has one — the 3.3.0 split moved mood off the BPM sensor with no
+ * fallback, so card configs written before that split silently lost mood
+ * steering on upgrade. Adopting the conventional id restores it without
+ * requiring the user to edit every card, and without touching bpm_entity
+ * (the split contract stays intact).
+ *
+ * Returns '' when nothing is configured and no default entity exists.
+ */
+export function resolveMoodEntity(card, hass) {
+  const configured = card.config && card.config.mood_entity;
+  if (configured) return configured;
+  return (hass && hass.states && hass.states[DEFAULT_MOOD_ENTITY])
+    ? DEFAULT_MOOD_ENTITY
+    : '';
+}
+
+/**
+ * Emit ONE console.warn per card instance when mood-aware style is on but no
+ * usable mood data can ever arrive (5.7.2).
+ *
+ * Two distinct misconfigurations produce the same silent-degradation
+ * symptom, so they get distinct messages:
+ *   - no mood entity configured and none auto-detected → point at the
+ *     sensor + the config key;
+ *   - an entity resolved but it carries no mood_scores attribute → almost
+ *     always the natural-but-wrong `sensor.ax_bpm` (the BPM sensor has not
+ *     carried mood attributes since 3.3.0).
+ *
+ * Skipped entirely when mood_style_enabled is false — that user opted out,
+ * so there is nothing wrong to report. Guarded by card._moodWarned so a
+ * 60-frames-a-second hass firehose cannot flood the console.
+ */
+function warnMoodMisconfig(card, moodEntity, moodState, moodUsable) {
+  if (card.config && card.config.mood_style_enabled === false) return;
+  if (card._moodWarned) return;
+
+  let message = null;
+  if (!moodEntity) {
+    message = 'axidos-card: mood-aware dance style is enabled but no mood_entity is '
+      + `configured and ${DEFAULT_MOOD_ENTITY} was not found. Set mood_entity to the `
+      + 'AX BPM integration\'s mood sensor (3.3.0+), or set mood_style_enabled: false '
+      + 'to silence this warning.';
+  } else if (moodState && moodUsable && moodState.attributes
+    && moodState.attributes.mood_scores === undefined) {
+    message = `axidos-card: mood_entity "${moodEntity}" has no mood_scores attribute, so `
+      + 'mood-aware dance style has no effect. Point mood_entity at the AX BPM mood '
+      + `sensor (${DEFAULT_MOOD_ENTITY} by default), not at the BPM sensor — mood moved `
+      + 'off sensor.ax_bpm in AX BPM 3.3.0.';
+  }
+  // moodState === null (entity missing) is a transient HA state, not a
+  // configuration error — it resolves itself when the integration loads.
+  if (!message) return;
+
+  card._moodWarned = true;
+  console.warn(message);
+}
+
 /**
  * Process one hass delivery for a card.
  *
@@ -29,7 +94,6 @@ export function applyHassUpdate(card, hass) {
   const entity = card.config.entity;
   const mediaEntity = card.config.media_entity;
   const bpmEntity = card.config.bpm_entity;
-  const moodEntity = card.config.mood_entity;
   const progressEntity = card.config.progress_entity;
   const newVoiceState = (entity && hass.states[entity]) ? hass.states[entity].state.toLowerCase() : 'idle';
   const newMediaState = (mediaEntity && hass.states[mediaEntity]) ? hass.states[mediaEntity].state.toLowerCase() : 'paused';
@@ -38,17 +102,32 @@ export function applyHassUpdate(card, hass) {
 
   // Mood (5.7.0): read from the dedicated AX BPM mood entity (3.3.0+). Its
   // STATE is the mood label (aggressive/party/relaxed/electronic/acoustic or
-  // unknown); its ATTRIBUTES carry mood_scores/intensity/calmness. The two
-  // are merged into the synthetic attribute dict parseMood/moodSignature
-  // already consume, so the pure parsing contracts are unchanged. No mood
-  // entity (or unknown/unavailable state) parses to the neutral mood — the
-  // dance stays on the plain BPM-derived style.
+  // unknown); its ATTRIBUTES carry mood_scores. The two are merged into the
+  // synthetic attribute dict parseMood/moodSignature consume, so the pure
+  // parsing contracts are unchanged. No mood entity (or unknown/unavailable
+  // state) parses to the neutral mood — the dance stays on the plain
+  // BPM-derived style.
+  //
+  // mood_label goes LAST so the entity STATE stays authoritative: the label
+  // is the integration's argmax over the five heads, and a stale/duplicate
+  // mood_label inside attributes must never override it (the pre-5.7.2
+  // spread order had it the other way round).
+  const moodEntity = resolveMoodEntity(card, hass);
   const moodState = (moodEntity && hass.states[moodEntity]) ? hass.states[moodEntity] : null;
   const moodUsable = moodState && moodState.state !== 'unknown' && moodState.state !== 'unavailable';
   const newMoodAttrs = moodUsable
-    ? { mood_label: moodState.state, ...moodState.attributes }
+    ? { ...moodState.attributes, mood_label: moodState.state }
     : null;
   const newMoodSig = moodSignature(newMoodAttrs);
+
+  // One-time diagnostic (5.7.2): since the 3.3.0 mood split the BPM sensor no
+  // longer carries mood attributes, so a card that never got a mood_entity
+  // silently loses mood-aware dance style on upgrade — no error, no visual
+  // clue. Warn exactly once per card instance so the fix is discoverable
+  // without spamming the console on every delivery. There is deliberately NO
+  // bpm_entity fallback: that would re-couple the two entities and
+  // contradict the 3.3.0 split contract.
+  warnMoodMisconfig(card, moodEntity, moodState, moodUsable);
 
   const mapped = resolveState(newVoiceState, newMediaState);
 

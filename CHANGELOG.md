@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.7.2
+
+### Every Mood Now Steers Her
+
+* **All five moods change how she dances** — the AX BPM mood sensor reports five moods: `aggressive`, `party`, `relaxed`, `electronic` and `acoustic`. Only three of them did anything. An `electronic` or `acoustic` track produced no tier shift, no energy change and no lid change — the mood sensor updated and the avatar ignored it. That mattered most for the **Set mood** action in AX BPM: choosing `electronic` or `acoustic` changed the sensor state and nothing else.
+* **`aggressive` and `party` no longer look identical** — both used to resolve to exactly the same dance directive, so switching between them was invisible too. `aggressive` is now the more full-on of the two, `party` the celebratory one.
+* **Wide-awake moods finally read as awake** — the "party and aggressive = eyes open" rule was dead code: its lid floor (0.05) could never win against the tempo-based floor (0.15 below 125 BPM, 0.08 above), so it never once had an effect. A mood's lid now takes priority over the tempo default, which means high-energy tracks genuinely keep her eyes open and calm tracks genuinely droop.
+* **Mood survives upgrading** — the mood moved to its own entity (`sensor.ax_bpm_mood`) in AX BPM 3.3.0, and cards configured before that silently stopped reacting to mood with no error. If `mood_entity` is left empty and `sensor.ax_bpm_mood` exists, it is now picked up automatically.
+* **A clear warning if the mood entity is wrong** — pointing `mood_entity` at the BPM sensor (the natural mistake — mood used to live there) now logs one console warning naming the correct entity, instead of failing silently.
+* **Mood is still optional** — with no mood sensor, or with *Mood-Aware Dance Style* turned off, nothing changes at all.
+
+## 5.7.1
+
+### No More Stuck Dance Pose
+
+* **Fixed the dance getting stuck with her head tilted** — some dance moves deliberately hold one pose across a whole 16-beat bar (the *strobe slam* finale in the intense tier and the *settle rest* breather in the chill tier). Because the pose target never changed, the browser had nothing to animate and her head simply stopped, parked mid-tilt, until the next bar swapped in a new move. Field report: *"she moves into a left tilt and does not move until the next dance move sequence."*
+* **Held poses now breathe** — on a held beat she gets a small vertical breath (about 3 px) plus a matching eyelid accent, so a held pose reads as a deliberate, living hold instead of a frozen frame. The held *attitude* — that 15° tilt, the droopy chill rest — is untouched; only the stillness is gone. The breath is a smooth half-bar cycle and is fully deterministic, so the choreography still replays identically every run.
+* **Every moving beat is unchanged** — the breath is added only to beats whose pose already repeats. All 30 other beats of the vocabulary render exactly as they did in 5.7.0, verified sample-by-sample against the previous build (0 of 512 beat samples altered).
+* **The torso still stays put during a hold** — that is intentional. Her torso swivel lags the head with a multi-beat transition, and re-issuing it every beat during a hold is exactly the per-beat stall that was removed in 5.5.2. A settled torso under a breathing head is the intended read.
+
 ## 5.7.0
 
 ### Smoother Motion on Tablets (Layer Split)

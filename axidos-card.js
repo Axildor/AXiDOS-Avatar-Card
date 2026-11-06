@@ -315,7 +315,7 @@ function buildEditorForm() {
         respond_delay: "Seconds to wait before switching from Processing to Responding.",
         zoom: "Scale percentage of the SVG model inside the card. Above 100 the card grows to keep the model fully visible.",
         transparent_bg: "Removes the card background, shadow, and border.",
-        mood_entity: "The AX BPM integration's dedicated mood sensor (3.3.0+). Its state is the mood label; its attributes carry the mood scores that steer the dance style.",
+        mood_entity: "The AX BPM integration's dedicated mood sensor (3.3.0+, normally sensor.ax_bpm_mood). Its state is the mood label; its attributes carry the mood scores that steer the dance style. Leave empty to auto-detect sensor.ax_bpm_mood. Do NOT point this at the BPM sensor \u2014 mood moved off it in AX BPM 3.3.0.",
         mood_style_enabled: "Lets the mood sensor steer the dance: relaxed tracks use chill moves at any tempo, party/aggressive tracks use wilder moves. Requires the AX BPM mood entity.",
         debug_perf: "Shows a small overlay on the card with live FPS, jank-frame count, and dance beat-timer lateness. For diagnosing animation stutter on devices without developer tools (tablets, WebView). Leave off for normal use.",
         debug_lite: "Freezes the always-on ambient motion (body sway, head sway) to isolate the baseline repaint load. Diagnostic only \u2014 leave off for normal use.",
@@ -360,34 +360,53 @@ function parseMood(attrs) {
   const aggressive = num(scores.aggressive);
   const party = num(scores.party);
   const relaxed = num(scores.relaxed);
-  if (aggressive === null && party === null && relaxed === null) return neutral;
+  const electronic = num(scores.electronic);
+  const acoustic = num(scores.acoustic);
+  if (aggressive === null && party === null && relaxed === null && electronic === null && acoustic === null) return neutral;
   const label = typeof attrs.mood_label === "string" ? attrs.mood_label.toLowerCase() : "";
-  const vals = [aggressive, party, relaxed].filter((v) => v !== null);
+  const vals = [aggressive, party, relaxed, electronic, acoustic].filter((v) => v !== null);
   const maxScore = vals.length ? Math.max(...vals) : 0;
-  const labelScore = label === "aggressive" ? aggressive : label === "party" ? party : label === "relaxed" ? relaxed : null;
+  const labelScore = MOOD_HEAD_BY_LABEL[label] !== void 0 ? num(scores[label]) : null;
   const dominant = labelScore !== null && labelScore >= MOOD_CONFIDENCE && labelScore >= maxScore;
   let tierShift = 0;
   let energyBias = 0;
   let lidFloor = null;
-  if (dominant) {
-    if (label === "relaxed") {
-      tierShift = -1;
-      energyBias = -0.2;
-      lidFloor = MOOD_LID_RELAXED;
-    } else {
-      tierShift = 1;
-      energyBias = 0.2;
-      lidFloor = MOOD_LID_AWAKE;
-    }
+  if (dominant && MOOD_HEAD_BY_LABEL[label] !== void 0) {
+    const head = MOOD_HEAD_BY_LABEL[label];
+    tierShift = head.tierShift;
+    energyBias = head.energyBias;
+    lidFloor = head.lidFloor;
   } else {
     const p = party || 0;
     const ag = aggressive || 0;
+    const el = electronic || 0;
     const re = relaxed || 0;
-    energyBias = Math.max(-0.2, Math.min(0.2, (p * 0.6 + ag * 0.4 - re) * 0.3));
+    const ac = acoustic || 0;
+    energyBias = Math.max(-0.2, Math.min(
+      0.2,
+      (p * 0.6 + ag * 0.4 + el * 0.25 - re - ac * 0.5) * 0.3
+    ));
   }
   return { present: true, tierShift, energyBias, lidFloor };
 }
 var MOOD_CONFIDENCE = 0.4;
+var MOOD_LID_AWAKE = 0.05;
+var MOOD_LID_PARTY = 0.06;
+var MOOD_LID_ELECTRONIC = 0.07;
+var MOOD_LID_ACOUSTIC = 0.22;
+var MOOD_LID_RELAXED = 0.3;
+var MOOD_HEAD_BY_LABEL = {
+  // High-arousal family, ordered by severity: aggressive is the most
+  // extreme descriptor, party the celebratory one, electronic the weakest
+  // (it is an intensity numerator, not a mood-strength claim).
+  aggressive: { family: "high", weight: 1, tierShift: 1, energyBias: 0.2, lidFloor: MOOD_LID_AWAKE },
+  party: { family: "high", weight: 1, tierShift: 1, energyBias: 0.18, lidFloor: MOOD_LID_PARTY },
+  electronic: { family: "high", weight: 0.6, tierShift: 1, energyBias: 0.12, lidFloor: MOOD_LID_ELECTRONIC },
+  // Calm family, ordered by droop: relaxed is the primary calm numerator,
+  // acoustic the weaker one.
+  relaxed: { family: "calm", weight: 1, tierShift: -1, energyBias: -0.2, lidFloor: MOOD_LID_RELAXED },
+  acoustic: { family: "calm", weight: 0.6, tierShift: -1, energyBias: -0.12, lidFloor: MOOD_LID_ACOUSTIC }
+};
 function moodSignature(attrs) {
   if (!attrs || typeof attrs !== "object" || !attrs.mood_scores || typeof attrs.mood_scores !== "object") return "";
   const s = attrs.mood_scores;
@@ -401,8 +420,6 @@ function moodSignature(attrs) {
     r2(s.acoustic)
   ].join("|");
 }
-var MOOD_LID_RELAXED = 0.3;
-var MOOD_LID_AWAKE = 0.05;
 function parseProgress(raw, min = 0, max = 100) {
   if (raw === void 0 || raw === null) return null;
   const s = String(raw).trim().toLowerCase();
@@ -1289,21 +1306,53 @@ function phraseVariant(tierIdx, phraseId, phraseCount) {
   ));
   return { lead: rnd() < 0.5 ? 1 : -1, jitter: 0.9 + rnd() * 0.2 };
 }
-function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
+var LIVE_HOLD_BREATH_PX = 3;
+var LIVE_HOLD_LID_ACCENT = 0.1;
+var LIVE_HOLD_PERIOD_BEATS = 8;
+function liveHoldOffset(heldBeats) {
+  if (!(heldBeats >= 1)) return { ty: 0, lid: 0 };
+  const phase = 2 * Math.PI * (heldBeats - 0.5) / LIVE_HOLD_PERIOD_BEATS;
+  return {
+    ty: LIVE_HOLD_BREATH_PX * Math.sin(phase),
+    // Lid leads the breath by a quarter cycle: the eyes soften as she rises,
+    // so the held bar reads as a relaxed hold rather than a mechanical bob.
+    lid: LIVE_HOLD_LID_ACCENT * Math.sin(phase + Math.PI / 2)
+  };
+}
+function rawPoseAt(tierIdx, phraseId, beat, variant, globalBeat) {
   const phrase = TIERS[tierIdx].phrases[phraseId];
-  const isDown = b % 2 === 0;
   const rnd = mulberry32(hash32(
-    Math.imul(phraseId + 1, 7919) ^ Math.imul(b + 1, 104729) ^ Math.imul(tierIdx + 1, 7)
+    Math.imul(phraseId + 1, 7919) ^ Math.imul(beat + 1, 104729) ^ Math.imul(tierIdx + 1, 7)
   ));
-  const raw = phrase.pose(b, {
-    isDown,
-    quad: b % 4 === 0,
-    m4: b % 4,
-    m8: b % 8,
+  return phrase.pose(beat, {
+    isDown: beat % 2 === 0,
+    quad: beat % 4 === 0,
+    m4: beat % 4,
+    m8: beat % 8,
     lead: variant.lead,
     global: globalBeat,
     rnd
   });
+}
+function sameHeadTarget(a, b) {
+  return Math.abs(a.r - b.r) < 1e-9 && Math.abs(a.tx - b.tx) < 1e-9 && Math.abs(a.ty - b.ty) < 1e-9 && Math.abs(a.s - b.s) < 1e-9;
+}
+function heldRunAt(tierIdx, phraseId, b, variant, globalBeat, current) {
+  if (b <= 0) return 0;
+  let held = 0;
+  let newer = current;
+  for (let k = b - 1; k >= 0; k--) {
+    const past = rawPoseAt(tierIdx, phraseId, k, variant, globalBeat - (b - k));
+    if (!sameHeadTarget(newer, past)) break;
+    held++;
+    newer = past;
+  }
+  return held;
+}
+function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
+  const phrase = TIERS[tierIdx].phrases[phraseId];
+  const raw = rawPoseAt(tierIdx, phraseId, b, variant, globalBeat);
+  const hold = liveHoldOffset(heldRunAt(tierIdx, phraseId, b, variant, globalBeat, raw));
   const k = variant.jitter;
   const dartMax = DART_MAX[tierIdx];
   let dart = raw.dart;
@@ -1317,9 +1366,12 @@ function getBeatPose(tierIdx, phraseId, b, variant, globalBeat) {
   return {
     r: raw.r * k,
     tx: raw.tx * k,
-    ty: raw.ty * k,
+    // Living hold: on a held beat the breath is added on top of the (stable)
+    // target, so consecutive held beats always differ and the head never
+    // parks. On a moving beat hold.ty is exactly 0 — byte-identical legacy.
+    ty: raw.ty * k + hold.ty,
     s: 1 + (raw.s - 1) * k,
-    lid: raw.lid,
+    lid: raw.lid + hold.lid,
     pump: raw.pump * k,
     flow: raw.flow,
     flowBlend: raw.flow ? 1 : 0,
@@ -1455,7 +1507,7 @@ function startDanceCycle(card, bpm, mood) {
       lastSwivelRot = swivelRot;
     }
     const bpmLidFloor = currentBpm < 125 ? 0.15 : 0.08;
-    const lid = Math.max(move.lid, lidFloor !== null ? Math.max(bpmLidFloor, lidFloor) : bpmLidFloor);
+    const lid = Math.max(move.lid, resolveLidFloor(bpmLidFloor, lidFloor));
     a.setBaseLid(lid, beatSec * 0.5);
     executeTick();
   };
@@ -1472,6 +1524,10 @@ function mulberryFrom(seed) {
 }
 var HIT_CLAMP_BEATS = 2;
 var FLOW_CLAMP_BEATS = 1.9;
+function resolveLidFloor(bpmLidFloor, moodFloor) {
+  if (moodFloor === null || moodFloor === void 0) return bpmLidFloor;
+  return moodFloor;
+}
 function tierForBpm(bpm) {
   return bpm < 90 ? 0 : bpm < 125 ? 1 : bpm < 160 ? 2 : 3;
 }
@@ -1827,6 +1883,25 @@ function applyState(card, mapped, bpm, mood) {
 }
 
 // src/hass-update.js
+var DEFAULT_MOOD_ENTITY = "sensor.ax_bpm_mood";
+function resolveMoodEntity(card, hass) {
+  const configured = card.config && card.config.mood_entity;
+  if (configured) return configured;
+  return hass && hass.states && hass.states[DEFAULT_MOOD_ENTITY] ? DEFAULT_MOOD_ENTITY : "";
+}
+function warnMoodMisconfig(card, moodEntity, moodState, moodUsable) {
+  if (card.config && card.config.mood_style_enabled === false) return;
+  if (card._moodWarned) return;
+  let message = null;
+  if (!moodEntity) {
+    message = `axidos-card: mood-aware dance style is enabled but no mood_entity is configured and ${DEFAULT_MOOD_ENTITY} was not found. Set mood_entity to the AX BPM integration's mood sensor (3.3.0+), or set mood_style_enabled: false to silence this warning.`;
+  } else if (moodState && moodUsable && moodState.attributes && moodState.attributes.mood_scores === void 0) {
+    message = `axidos-card: mood_entity "${moodEntity}" has no mood_scores attribute, so mood-aware dance style has no effect. Point mood_entity at the AX BPM mood sensor (${DEFAULT_MOOD_ENTITY} by default), not at the BPM sensor \u2014 mood moved off sensor.ax_bpm in AX BPM 3.3.0.`;
+  }
+  if (!message) return;
+  card._moodWarned = true;
+  console.warn(message);
+}
 function applyHassUpdate(card, hass) {
   if (!hass) return false;
   card._hass = hass;
@@ -1838,16 +1913,17 @@ function applyHassUpdate(card, hass) {
   const entity = card.config.entity;
   const mediaEntity = card.config.media_entity;
   const bpmEntity = card.config.bpm_entity;
-  const moodEntity = card.config.mood_entity;
   const progressEntity = card.config.progress_entity;
   const newVoiceState = entity && hass.states[entity] ? hass.states[entity].state.toLowerCase() : "idle";
   const newMediaState = mediaEntity && hass.states[mediaEntity] ? hass.states[mediaEntity].state.toLowerCase() : "paused";
   const newBpmState = bpmEntity && hass.states[bpmEntity] ? hass.states[bpmEntity].state : "120";
   const newProgressState = progressEntity && hass.states[progressEntity] ? hass.states[progressEntity].state : null;
+  const moodEntity = resolveMoodEntity(card, hass);
   const moodState = moodEntity && hass.states[moodEntity] ? hass.states[moodEntity] : null;
   const moodUsable = moodState && moodState.state !== "unknown" && moodState.state !== "unavailable";
-  const newMoodAttrs = moodUsable ? { mood_label: moodState.state, ...moodState.attributes } : null;
+  const newMoodAttrs = moodUsable ? { ...moodState.attributes, mood_label: moodState.state } : null;
   const newMoodSig = moodSignature(newMoodAttrs);
+  warnMoodMisconfig(card, moodEntity, moodState, moodUsable);
   const mapped = resolveState(newVoiceState, newMediaState);
   if (card._lastHassVoice === newVoiceState && card._lastHassMedia === newMediaState && card._lastHassBpm === newBpmState && card._lastHassProgress === newProgressState && card._lastHassMood === newMoodSig && mapped === card._state) return false;
   card._lastHassVoice = newVoiceState;
@@ -2419,6 +2495,19 @@ var AxidosAnimator = class {
   // Transform writes go to ALL copies of a duplicated pivot group (layer
   // split C1/C2): the eye/LED layers carry mirror chains, and a write to
   // only the first copy would desync the layers.
+  /**
+   * Pose the head. NO redundant-write guard — deliberately, and do not add one.
+   *
+   * freezeHeadMotion() (tap bop) leaves the head with `transition: none` and an
+   * inline mid-flight transform. The first post-bop write MUST restore the
+   * transition even when the target is numerically identical to what is
+   * already inline; a "skip identical transform" optimization here would skip
+   * that restore and the head would stay frozen for the rest of the state.
+   *
+   * The separate 5.7.1 "dead bar" problem (a phrase that targets an unchanged
+   * pose for many beats, so the browser has nothing to interpolate) is fixed
+   * UPSTREAM in choreography.js via the living-hold breath, not here.
+   */
   setHead(rot, tx, ty, scale = 1, dur, ease = "cubic-bezier(0.34,1.06,0.64,1)") {
     for (const el of this.el.head) {
       el.style.transition = `transform ${dur}s ${ease}`;
@@ -2575,7 +2664,7 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.7.0";
+var CARD_VERSION = "5.7.2";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;
@@ -2742,6 +2831,7 @@ var AxidosCard = class extends HTMLElement {
     this._lastHassBpm = null;
     this._lastHassProgress = null;
     this._lastHassMood = null;
+    this._moodWarned = false;
     this._progressPct = null;
     this._state = "idle";
     this._currentBpm = 120;
