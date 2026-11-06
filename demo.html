@@ -2351,8 +2351,13 @@ function buildTemplate(config) {
       #axidos-svg-eye      { z-index: 3; }
       /* LED consumers inherit the custom-property defaults from their layer
          root; setLedVars() writes overrides directly on the consumer
-         elements, scoped away from the whole subtree. */
-      #axidos-svg-led      { z-index: 4; --led-color: #ffb800; --led-opacity: 0.15; }
+         elements, scoped away from the whole subtree.
+         OCCLUSION CONTRACT (5.7.0-beta.4): the LED layer shares the body's
+         z-band (1) and sits after it in DOM order, so lit dots paint above the
+         body bezel but below head (2) and eye (3). The dot bounding boxes
+         legitimately intersect the head box \u2014 the head OCCLUDES the shoulder
+         LEDs by design. Raising this to z4 put the dots over the face. */
+      #axidos-svg-led      { z-index: 1; --led-color: #ffb800; --led-opacity: 0.15; }
 
       /* ---- Compositor-layer promotion ----
          Every group animated via transform gets will-change: transform so the
@@ -2622,12 +2627,17 @@ ${liteCss}
           </g>
       </svg>
 
-      <!-- ================= z4 LED (mover d) \u2014 mirror body chain =================
+      <!-- ================= z1 LED (mover d) \u2014 mirror body chain =================
            The LED matrices + indicator dots are opacity-pure animators; they
            ride a MIRROR of the body pivot chain so they stay registered with
            the bezel frames + sockets painted in the body layer (both track
            the identical chain \u2014 the only cross-layer geometric register
-           risk, asserted by verify_layer_split.mjs A3b). -->
+           risk, asserted by verify_layer_split.mjs A3b).
+           This layer shares the body's z-band (z-index 1) and sits AFTER it
+           in DOM order, so the dots paint above the body's bezel frames and
+           sockets but BELOW the head/eye layers \u2014 the head occludes the
+           shoulder LEDs exactly as it did in the pre-split single SVG
+           (5.7.0-beta.4 occlusion fix). -->
       <svg id="axidos-svg-led" ${SVG_ATTRS}>
         <g id="body-pivot">
           <g id="torso-swivel">
@@ -2938,7 +2948,7 @@ var AxidosAnimator = class {
 };
 
 // src/version.js
-var CARD_VERSION = "5.7.0-beta.3";
+var CARD_VERSION = "5.7.0";
 
 // src/perf.js
 var JANK_THRESHOLD_MS = 50;

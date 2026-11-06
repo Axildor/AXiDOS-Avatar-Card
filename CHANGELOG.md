@@ -2,6 +2,39 @@
 
 All notable changes to this project are documented in this file.
 
+## 5.7.0
+
+### Smoother Motion on Tablets (Layer Split)
+
+* **The avatar no longer repaints its whole artwork every animation frame** — the single inline SVG is now five stacked, absolutely-positioned SVG layers sharing one identical coordinate system: a paint-once backdrop (gradient and clip definitions only), plus four animated movers (body, head, eye assembly, LED matrices). Each mover composites on its own GPU layer, so per-frame transform motion (sway, poses, bop, pupil, lids, LED pulse) no longer triggers main-thread repaints of the entire artwork. This was the measured cause of tablet jank (100+ ms per frame on the Tab S6 Lite).
+* **Visually identical** — every layer shares the same viewBox, so all existing pixel positions, transform origins, and animation timings are unchanged. Eye colour changes (state colours, dance strobe, idle glitch) are now pre-painted colour variants crossfaded with opacity — the same 0.8 s easing as before, but without paint transitions inside the animated layers.
+* **Lit LED indicators sit behind the head again** — fixed a regression in the layer split where the shoulder-mounted LED matrices and indicator dots rendered ON TOP of the head casing whenever they lit up (listening, processing, responding, dance beats, tap bop): glowing orbs across the avatar's face. The LED layer now shares the body's stacking band, so the dots paint above the body's bezel frames and sockets but below the head and eye, exactly as in the original single-SVG artwork. Dot coordinates are unchanged; this was purely a paint-order fix.
+
+### Max Animation FPS (JS Motion)
+
+* **New "Max Animation FPS (JS Motion)" option (default 60)** — the card's JavaScript-driven motion loops (the tap-bop spring, the idle glitch effect) previously ticked at the display's refresh rate. On a 240 Hz desktop monitor that is 4× the per-second work for no perceptual gain at this card's slow, small-angle motion. The new cap gates those loops to at most `fps_max` updates per second (accepted values clamp to 30–240).
+* **Motion looks identical** — the spring integrator is time-based, so it receives the real elapsed time per tick and the trajectory is pixel-identical to the uncapped run. Only the number of updates drops, not the speed or smoothness. The ambient CSS sway is untouched — it is compositor-driven and handled separately.
+* **Why 60** — the reference device (Tab S6 Lite 2024) has a 60 Hz panel, so 60 is right almost everywhere. Lower it to 30 on very weak hardware to save more CPU.
+
+### Performance Diagnostics
+
+* **The Performance HUD now identifies itself** — the overlay shows the loaded build version, the device's scale factor (DPR), JavaScript heap usage with a rolling 60-second Δheap/min trend, and which diagnostic flags are active. This ends cache ambiguity: Home Assistant serves the card at a stable URL with no cache-busting, so a browser can silently keep running an old build — now the tablet screen itself proves which build is loaded. The Δheap/min trend distinguishes a real leak (steady positive slope) from a GC seesaw (slope near zero on a high plateau).
+* **The HUD sampler no longer competes for frames** — it still counts every display frame, so its FPS/jank/worst numbers keep measuring the true display rate, but its window bookkeeping now runs at most 30 times per second.
+* **"Debug: DPR Compositing Fix" retired** — the Chromium workaround it targeted was falsified on the Tab S6 Lite field test, and the layer split replaces the single-SVG compositing path it was written for. The setting is accepted for backward compatibility but does nothing (the HUD shows it as "retired (no-op)").
+* **"Debug: Lite Mode (Freeze Ambient)" now works** — an earlier build silently wrote the flag into the element's `id` attribute instead of its `class`, so the freeze rules matched nothing and lite mode was a no-op on device. The class is now a proper attribute, so the toggle actually freezes the ambient sway.
+* **Critical fix: the tap hitbox no longer swallows the dashboard** — the same malformed attribute could let the tap hitbox cover the entire screen when "Tap to Bop" and "Debug: Lite Mode" were both enabled, making the card editor unreachable. The hitbox is again bounded by the card.
+
+### Demo Studio
+
+* **Freeze for capture (F)** — a permanent fixture that tears down all motion and pauses the ambient sway, producing one deterministic static frame for pixel-diff comparisons between builds.
+
+## 5.7.0-beta.4
+
+### LED Paint-Order Fix
+
+* **Lit LED indicator orbs no longer paint over the head** — fixed a 5.7.0-beta.3 layer-split regression where the shoulder-mounted LED matrices and indicator dots rendered ON TOP of the head casing whenever they lit up (listening/processing/responding states, dance beats, tap bop): glowing orbs across the avatar's face. Root cause: the new LED layer was stacked at z-index 4, above the head (z2) and eye (z3) layers — in the pre-split single-SVG artwork the head painted after the LEDs and correctly occluded them. The LED layer now shares the body's z-band (z-index 1) and sits after it in DOM order, so the dots still paint above the body's bezel frames and sockets but below the head and eye — the legacy paint order restored.
+* **Geometry untouched** — the dot coordinates, the mirror pivot chain, and the head's overflow (the dance depth effect) are all unchanged; this was purely a paint-order fix. The dim resting dots remain visible in their shoulder slots exactly as before.
+
 ## 5.7.0-beta.3
 
 ### SVG Layer Split (the motion-jank fix)

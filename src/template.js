@@ -25,8 +25,14 @@
  *       ids; CSS id selectors match every copy so the sway keyframes hit all
  *       layers in sync, and the animator writes JS transforms to all copies)
  *       + #eyeball-assembly (pupil, glow, eye layers, lids, halo, center).
- *   z4 #axidos-svg-led    (mover) — MIRROR of the body pivot chain + the
+ *   z1 #axidos-svg-led    (mover) — MIRROR of the body pivot chain + the
  *       .led-matrix groups + #ind-* dots (opacity-pure animation).
+ *       Shares the body's z-band and sits AFTER it in DOM order, so the dots
+ *       paint above the body's bezel frames + sockets but BELOW the head and
+ *       eye layers — the legacy single-SVG occlusion (the head occludes the
+ *       shoulder LEDs by design). Do NOT raise this above z2: that paints
+ *       glowing orbs across the avatar's face (the 5.7.0-beta.3 regression,
+ *       fixed in 5.7.0-beta.4).
  *   #hitbox stays its own absolute layer, z-100, on top.
  *
  * HARD LIMIT: 1 backdrop + 4 movers. Every promoted group costs GPU texture
@@ -157,8 +163,13 @@ export function buildTemplate(config) {
       #axidos-svg-eye      { z-index: 3; }
       /* LED consumers inherit the custom-property defaults from their layer
          root; setLedVars() writes overrides directly on the consumer
-         elements, scoped away from the whole subtree. */
-      #axidos-svg-led      { z-index: 4; --led-color: #ffb800; --led-opacity: 0.15; }
+         elements, scoped away from the whole subtree.
+         OCCLUSION CONTRACT (5.7.0-beta.4): the LED layer shares the body's
+         z-band (1) and sits after it in DOM order, so lit dots paint above the
+         body bezel but below head (2) and eye (3). The dot bounding boxes
+         legitimately intersect the head box — the head OCCLUDES the shoulder
+         LEDs by design. Raising this to z4 put the dots over the face. */
+      #axidos-svg-led      { z-index: 1; --led-color: #ffb800; --led-opacity: 0.15; }
 
       /* ---- Compositor-layer promotion ----
          Every group animated via transform gets will-change: transform so the
@@ -428,12 +439,17 @@ ${liteCss}
           </g>
       </svg>
 
-      <!-- ================= z4 LED (mover d) — mirror body chain =================
+      <!-- ================= z1 LED (mover d) — mirror body chain =================
            The LED matrices + indicator dots are opacity-pure animators; they
            ride a MIRROR of the body pivot chain so they stay registered with
            the bezel frames + sockets painted in the body layer (both track
            the identical chain — the only cross-layer geometric register
-           risk, asserted by verify_layer_split.mjs A3b). -->
+           risk, asserted by verify_layer_split.mjs A3b).
+           This layer shares the body's z-band (z-index 1) and sits AFTER it
+           in DOM order, so the dots paint above the body's bezel frames and
+           sockets but BELOW the head/eye layers — the head occludes the
+           shoulder LEDs exactly as it did in the pre-split single SVG
+           (5.7.0-beta.4 occlusion fix). -->
       <svg id="axidos-svg-led" ${SVG_ATTRS}>
         <g id="body-pivot">
           <g id="torso-swivel">

@@ -4,8 +4,10 @@
  * absolutely-positioned SVGs in #scene (1 defs-only backdrop + 4 movers).
  *
  * Sections:
- *  1. Structure: exactly 5 svg.axidos-layer elements, z-order 0–4, hitbox
- *     z-100 on top, #scene keeps position: relative + contain.
+ *  1. Structure: exactly 5 svg.axidos-layer elements, z-order (backdrop 0,
+ *     body 1, head 2, eye 3, LED 1 — LED shares the body band and paints
+ *     below head/eye, the legacy occlusion), hitbox z-100 on top, #scene
+ *     keeps position: relative + contain.
  *  2. Identical viewBox: every layer carries viewBox="0 116 280 320" —
  *     px transform-origins + transform-box: view-box stay valid per layer.
  *  3. Backdrop purity: the backdrop layer contains ONLY <defs> — zero
@@ -118,10 +120,19 @@ console.log('\n== 1. Structure: 5 layers, z-order, hitbox, #scene guards ==');
     JSON.stringify(layerIds) === JSON.stringify(['axidos-svg-backdrop', 'axidos-svg-body', 'axidos-svg-head', 'axidos-svg-eye', 'axidos-svg-led']),
     `layer order is backdrop → body → head → eye → led (${layerIds.join(', ')})`,
   );
-  for (const [id, z] of [['axidos-svg-backdrop', 0], ['axidos-svg-body', 1], ['axidos-svg-head', 2], ['axidos-svg-eye', 3], ['axidos-svg-led', 4]]) {
+  for (const [id, z] of [['axidos-svg-backdrop', 0], ['axidos-svg-body', 1], ['axidos-svg-head', 2], ['axidos-svg-eye', 3], ['axidos-svg-led', 1]]) {
     const re = new RegExp(`#${id}\\s*\\{\\s*z-index:\\s*${z};`);
     assert(re.test(tpl), `#${id} carries z-index: ${z}`);
   }
+  // Occlusion contract (5.7.0-beta.4): the LED layer shares the body's
+  // z-band and sits AFTER it in DOM order, so the dots paint above the body
+  // bezel frames + sockets but BELOW the head and eye — the legacy single-SVG
+  // occlusion. Raising the LED layer above the head painted glowing orbs
+  // across the avatar's face (the beta.3 regression).
+  const zOf = (id) => Number(tpl.match(new RegExp(`#${id}\\s*\\{\\s*z-index:\\s*(\\d+);`))?.[1]);
+  assert(zOf('axidos-svg-led') < zOf('axidos-svg-head'), `LED layer paints below the head layer (z(led)=${zOf('axidos-svg-led')} < z(head)=${zOf('axidos-svg-head')})`);
+  assert(zOf('axidos-svg-led') < zOf('axidos-svg-eye'), `LED layer paints below the eye layer (z(led)=${zOf('axidos-svg-led')} < z(eye)=${zOf('axidos-svg-eye')})`);
+  assert(zOf('axidos-svg-led') === zOf('axidos-svg-body'), `LED layer shares the body z-band (both ${zOf('axidos-svg-led')})`);
   assert(tpl.includes('#hitbox { position: absolute; inset: 0; z-index: 100;'), '#hitbox stays its own absolute layer, z-100, on top');
   assert(tpl.includes('#scene { position: relative;'), '#scene keeps position: relative (hitbox containing block)');
   assert(tpl.includes('contain: layout paint;'), '#scene keeps contain: layout paint');
